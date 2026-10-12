@@ -7,6 +7,7 @@ rescue LoadError
 end
 require 'json'
 require 'fileutils'
+require 'securerandom'
 # Апдейтер — из папки расширения (PLUGIN_DIR-относительный путь): в dev-варианте
 # (<id>_dev/) иначе загрузился бы апдейтер прод-установки из Plugins/<id>/.
 Sketchup.require File.join(File.dirname(__FILE__), 'dn1sup_updater')
@@ -31,8 +32,29 @@ module Dn1sup
     CMD_TOOLTIP = 'DN1Sup Профили SketchUp — переключение профилей, установка расширений в профиль'
 
     @dialog = nil
+    @current_task = nil
+
+    # Заголовки долгих операций для оверлея прогресса (пушится в диалог при
+    # старте и возвращается при reopened диалоге вместе со state).
+    ACTION_TITLES = {
+      'create_profile'      => 'Создание профиля',
+      'delete_profile'      => 'Удаление профиля',
+      'install_rbz'         => 'Установка расширения',
+      'uninstall_extension' => 'Удаление расширения',
+      'backup_profile'      => 'Создание снимка профиля',
+      'restore_backup'      => 'Восстановление из снимка'
+    }.freeze
 
     module_function
+
+    # Диалог, которому стоит писать: текущий видимый, иначе последний созданный
+    # (диалог могли закрыть посреди фоновой операции — пуш в него резолвится
+    # через rescue в push_*).
+    def active_dialog
+      return @dialog if @dialog && @dialog.visible?
+
+      @dialog
+    end
 
     # Папка Plugins фиксируется на главном потоке: фоновые операции (defer_async)
     # не имеют права вызывать Sketchup API (в т.ч. find_support_file).
@@ -93,6 +115,7 @@ module Dn1sup
       return unless dlg
 
       payload = Core.state_payload
+      payload['busy_task'] = @current_task
       dlg.execute_script("window.pushState(#{JSON.generate(payload)});")
     rescue StandardError => e
       Dn1sup::Updater.log_error(e)
@@ -114,17 +137,64 @@ module Dn1sup
                   'error' => res && res['error'])
     end
 
-    # Тяжёлая файловая операция — в фоне (defer_async: сеть/файлы в потоке,
-    # результат — на главном потоке). Ядро Sketchup API не трогает.
+    # Тяжёлая файловая операция. НАМЕРЕННО синхронно на главном потоке: в
+    # SketchUp 2026 фоновые Ruby-потоки замирают, пока главный поток сидит в
+    # event-loop (probe: Thread+sleep не продвигается без активности главного
+    # потока) — defer_async (Thread + timer-опрос) для файловых операций
+    # зависал. Обёртка defer_async остаётся только для сетевых проверок
+    # апдейтера. Оверлей пушится ДО старта с задержкой в один тик таймера,
+    # чтобы JS успел его отрисовать: заморозка UI на 2–3 с (robocopy~248 МБ)
+    # проходит под ним и воспринимается как индикация работы.
     def run_async(dlg, action, id = nil)
-      Dn1sup::Updater.defer_async(
-        lambda { yield },
-        lambda do |res|
-          res ||= { 'ok' => false, 'error' => 'Операция не выполнена (см. лог)' }
-          notify_result(dlg, action, res, id)
-          push_state(dlg)
+      @current_task = { 'action' => action.to_s, 'id' => id.to_s,
+                        'text' => ACTION_TITLES[action.to_s] || action.to_s }
+      log("задача начата: #{action} #{id}")
+      push_result(dlg, 'task', @current_task.dup)
+      perform = lambda do
+        res = begin
+          yield
+        rescue StandardError, ScriptError => e
+          Dn1sup::Updater.log_error(e)
+          { 'ok' => false, 'error' => e.message }
         end
-      )
+        log("задача завершена: #{action} ok=#{!!(res && res['ok'])}")
+        Core.progress_finish
+        @current_task = nil
+        notify_result(dlg, action, res, id)
+        push_state(dlg)
+      end
+      if defined?(UI) && UI.respond_to?(:start_timer)
+        UI.start_timer(0.1, false) { perform.call }
+      else
+        perform.call
+      end
+    end
+
+    # ---- подтверждение внутри диалога (нативный messagebox из колбэка
+    # HtmlDialog в SketchUp 2026 молча возвращает не-IDYES) -------------------------
+
+    def request_confirm(dlg, action, data, text)
+      token = SecureRandom.hex(8)
+      (@pendings ||= {})[token] = { 'dlg' => dlg, 'action' => action, 'data' => data }
+      push_result(dlg, 'confirm', 'token' => token, 'action' => action, 'text' => text)
+    end
+
+    # Исполнение подтверждённого действия — тела соответствующих веток dispatch.
+    def perform_confirmed(dlg, action, data)
+      data ||= {}
+      case action.to_s
+      when 'delete_profile'
+        id = data['id'].to_s
+        run_async(dlg, 'delete_profile', id) { Core.delete_profile(id) }
+      when 'uninstall_extension'
+        profile = data['profile'].to_s
+        ext = data['ext'].to_s
+        run_async(dlg, 'uninstall_extension', ext) { Core.uninstall_extension(profile, ext) }
+      when 'restore_backup'
+        id = data['id'].to_s
+        file = data['file'].to_s
+        run_async(dlg, 'restore_backup', id) { Core.restore_backup(id, file) }
+      end
     end
 
     # ---- закрытие SketchUp после запуска хелпера -----------------------------------
@@ -141,11 +211,14 @@ module Dn1sup
 
     def dispatch(dlg, name, param)
       data = parse_json(param)
-      log("команда '#{name}'#{data['id'] && !data['id'].to_s.empty? ? " (#{data['id']})" : ''}")
+      log("команда '#{name}'#{data['id'] && !data['id'].to_s.empty? ? " (#{data['id']})" : ''}") unless name == 'get_progress'
       case name
       when 'ready', 'get_state'
         inject_error_hook(dlg)
         push_state(dlg)
+      when 'get_progress'
+        Dn1sup::Updater.log_debug('get_progress')
+        push_result(dlg, 'progress', Core.progress_snapshot || {})
       when 'get_extensions'
         id = data['profile'].to_s
         items = begin
@@ -211,7 +284,8 @@ module Dn1sup
         run_async(dlg, 'create_profile', data['id']) do
           Core.create_profile(id: data['id'], name: data['name'], description: data['description'],
                               source_id: data['source'],
-                              include: Array(data['include']), exclude: Array(data['exclude']))
+                              include: Array(data['include']), exclude: Array(data['exclude']),
+                              clean: !!data['clean'])
         end
       when 'rename_profile'
         res = begin
@@ -224,10 +298,25 @@ module Dn1sup
       when 'delete_profile'
         id = data['id'].to_s
         p = Core.find_profile(id)
-        if p && UI.messagebox("Удалить профиль «#{p['name']}» вместе со всеми его расширениями и настройками?", MB_YESNO) == IDYES
-          run_async(dlg, 'delete_profile', id) { Core.delete_profile(id) }
+        if p
+          request_confirm(dlg, 'delete_profile', data,
+                          "Удалить профиль «#{p['name']}» вместе со всеми его расширениями и настройками?")
         else
-          notify_result(dlg, 'delete_profile', { 'ok' => false, 'error' => 'Отменено' }, id)
+          notify_result(dlg, 'delete_profile', { 'ok' => false, 'error' => "Профиль «#{id}» не найден" }, id)
+        end
+      when 'confirm_answer'
+        token = data['token'].to_s
+        pending = (@pendings ||= {}).delete(token)
+        unless pending
+          log("confirm_answer: токен не найден (#{token})")
+          return
+        end
+
+        pdlg = pending['dlg']
+        if data['yes']
+          perform_confirmed(pdlg, pending['action'], pending['data'])
+        else
+          notify_result(pdlg, pending['action'], { 'ok' => false, 'error' => 'Отменено' }, pending['data'].to_h['id'])
         end
       when 'install_rbz'
         profile = data['profile'].to_s
@@ -240,21 +329,23 @@ module Dn1sup
       when 'uninstall_extension'
         profile = data['profile'].to_s
         ext = data['ext'].to_s
-        if UI.messagebox("Удалить расширение «#{ext}» из профиля «#{Core.find_profile(profile)&.fetch('name', profile)}»?", MB_YESNO) == IDYES
-          run_async(dlg, 'uninstall_extension', ext) { Core.uninstall_extension(profile, ext) }
+        if Core.profile_exists?(profile) && !ext.empty?
+          request_confirm(dlg, 'uninstall_extension', data,
+                          "Удалить расширение «#{ext}» из профиля «#{Core.find_profile(profile)&.fetch('name', profile)}»?")
         else
-          notify_result(dlg, 'uninstall_extension', { 'ok' => false, 'error' => 'Отменено' }, ext)
+          notify_result(dlg, 'uninstall_extension', { 'ok' => false, 'error' => 'Расширение или профиль не найдены' }, ext)
         end
       when 'backup_profile'
         run_async(dlg, 'backup_profile', data['id']) { Core.backup_profile(data['id']) }
       when 'restore_backup'
         id = data['id'].to_s
         file = data['file'].to_s
-        if UI.messagebox("Восстановить профиль «#{Core.find_profile(id)&.fetch('name', id)}» из снимка #{file}?\n" \
-                         'Текущее содержимое профиля будет заменено.', MB_YESNO) == IDYES
-          run_async(dlg, 'restore_backup', id) { Core.restore_backup(id, file) }
+        if Core.profile_exists?(id)
+          request_confirm(dlg, 'restore_backup', data,
+                          "Восстановить профиль «#{Core.find_profile(id)&.fetch('name', id)}» из снимка #{file}?\n" \
+                          'Текущее содержимое профиля будет заменено.')
         else
-          notify_result(dlg, 'restore_backup', { 'ok' => false, 'error' => 'Отменено' }, id)
+          notify_result(dlg, 'restore_backup', { 'ok' => false, 'error' => "Профиль «#{id}» не найден" }, id)
         end
       when 'delete_backup'
         res = begin

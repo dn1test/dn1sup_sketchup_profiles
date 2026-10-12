@@ -63,12 +63,19 @@ module Dn1sup::SketchupProfiles::Test
 
   test 'версия расширения согласована' do
     assert(Core::VERSION =~ /\A\d+\.\d+\.\d+\z/, "VERSION=#{Core::VERSION}")
-    registrar = File.join(File.dirname(Core::PLUGIN_DIR), 'dn1sup_sketchup_profiles.rb')
-    registrar = File.join(Core::PLUGIN_DIR, '..', '..', 'dn1sup_sketchup_profiles.rb') unless File.file?(registrar)
-    if File.file?(registrar)
-      m = File.read(registrar).match(/extension\.version\s*=\s*['"]([^'"]+)['"]/)
+    # Регистратор: dev-твин (<base>_dev.rb) рядом с папкой плагина, свой
+    # регистратор уродня или прод-регистратор сверху.
+    parent_name = File.basename(File.dirname(Core::PLUGIN_DIR))
+    candidates = [
+      File.join(Core::PLUGIN_DIR, '..', '..', "#{parent_name}.rb"),
+      File.join(File.dirname(Core::PLUGIN_DIR), "#{parent_name}.rb"),
+      File.join(Core::PLUGIN_DIR, '..', '..', 'dn1sup_sketchup_profiles.rb')
+    ]
+    registrar = candidates.find { |c| File.file?(c) }
+    if registrar
+      m = File.read(registrar).match(/(?:ext\.|extension\.)version\s*=\s*['"]([^'"]+)['"]/)
       assert(m, 'в регистраторе нет ext.version')
-      assert_equal(Core::VERSION, m[1], 'версия регистратора ≠ VERSION ядра')
+      assert_equal(Core::VERSION, m[1], "версия регистратора (#{File.basename(registrar)}) ≠ VERSION ядра")
     end
   end
 

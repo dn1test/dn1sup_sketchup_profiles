@@ -92,12 +92,18 @@ export function applyMockAction(name, params = {}) {
   }
   if (name === 'create_profile') {
     delay(() => {
+      const count = Array.isArray(params.include) ? params.include.length : 0
       mockProfiles.push({
         id: params.id, name: params.name || params.id, description: params.description || '',
-        is_active: false, protected: false, extensions_count: 0,
+        is_active: false, protected: false, extensions_count: count,
         created_at: Math.floor(Date.now() / 1000), last_launch: null
       })
-      window.pushResult('action_result', { id: params.id, action: name, ok: true, message: `Профиль «${params.name}» создан (mock).` })
+      window.pushResult('action_result', {
+        id: params.id, action: name, ok: true,
+        message: params.clean
+          ? `Создан чистый профиль «${params.name}» (mock).`
+          : `Профиль «${params.name}» создан (mock).`
+      })
       window.pushState(mockPayload())
     }, 900)
     return

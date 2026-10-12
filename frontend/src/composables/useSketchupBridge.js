@@ -31,7 +31,9 @@ const state = reactive({
   extensions: [],
   extensionsLoading: false,
   backups: [],
-  busy: null,                  // { id, action, text }
+  busy: null,                  // { id, action, text } — подпись на карточке
+  task: null,                  // { action, id, text, phase, phases } — блокирующий оверлей
+  confirm: null,               // { token, action, text } — подтверждение в окне
   toast: null,                 // { kind: 'ok'|'err'|'info', text }
   quitting: false
 })
@@ -51,6 +53,47 @@ function setBusy(id, action, text) {
   state.busy = { id, action, text }
 }
 
+// -- блокирующий оверлей задачи -----------------------------------------------------
+
+let progressTimer = null
+
+function stopProgressPolling() {
+  if (progressTimer) {
+    clearTimeout(progressTimer)
+    progressTimer = null
+  }
+}
+
+function clearTask() {
+  state.task = null
+  stopProgressPolling()
+}
+
+// Ruby ведёт оверлей: task-пуш при старте, фазы — ответами на get_progress
+// (опрос 500 мс, Sketchup API только на главном потоке), снятие —
+// action_result/error. Закрытие диалога не отменяет операцию: при новом
+// pushState с busy_task оверлей восстанавливается.
+function setTask(task) {
+  if (!task || !task.action) return
+  stopProgressPolling()
+  state.task = { phase: null, phases: [], ...task }
+  const poll = () => {
+    progressTimer = setTimeout(() => {
+      if (!state.task) return
+      callRubyJson('get_progress', {})
+      poll()
+    }, 500)
+  }
+  poll()
+}
+
+function applyProgress(payload) {
+  if (!state.task || !payload || !payload.action) return
+  if (payload.action && state.task.action && payload.action !== state.task.action) return
+  state.task.phase = payload.current || null
+  state.task.phases = payload.phases || state.task.phases
+}
+
 // -- обработчики пушей Ruby (регистрируются до монтирования Vue) ------------------
 
 if (typeof window !== 'undefined') {
@@ -63,6 +106,10 @@ if (typeof window !== 'undefined') {
       if (jr.ok) toast('ok', `Хелпер завершил: ${(jr.phases || []).join(' → ') || 'готово'}`)
       else toast('err', `Хелпер прервался: ${jr.error || 'неизвестная ошибка'} (фазы: ${(jr.phases || []).join(' → ')})`, 9000)
     }
+    if (payload.busy_task && payload.busy_task.action) {
+      if (!state.task || state.task.action !== payload.busy_task.action) setTask(payload.busy_task)
+    }
+    else if (state.task) clearTask()
     clearBusy(null)
   }
   window.pushResult = function (kind, payload) {
@@ -73,16 +120,30 @@ if (typeof window !== 'undefined') {
 function emitResult(kind, payload) {
   if (kind === 'error') {
     clearBusy(null)
+    clearTask()
     toast('err', payload.message || 'Ошибка Ruby', 8000)
     return
   }
   if (kind === 'action_result') {
     clearBusy(payload.id)
+    clearTask()
     if (payload.ok) {
       toast('ok', payload.message || 'Операция успешно завершена!')
     } else {
       toast('err', payload.error || 'Произошла ошибка при выполнении операции.', 8000)
     }
+    return
+  }
+  if (kind === 'task') {
+    setTask(payload)
+    return
+  }
+  if (kind === 'progress') {
+    applyProgress(payload)
+    return
+  }
+  if (kind === 'confirm') {
+    state.confirm = payload
     return
   }
   if (kind === 'extensions') {
@@ -158,6 +219,14 @@ export function beginMigration(createIds) {
   callRubyJson('begin_migration', { create: createIds })
 }
 
+// Подтверждение внутри диалога: Ruby прислал 'confirm' с токеном, ответ —
+// confirm_answer с тем же токеном (да/нет).
+export function answerConfirm(token, yes) {
+  state.confirm = null
+  if (!token) return
+  callRubyJson('confirm_answer', { token, yes: !!yes })
+}
+
 export function switchProfile(id, name) {
   setBusy(id, 'switch', `Переключение на «${name}»…`)
   if (isMock) {
@@ -185,9 +254,11 @@ export function renameProfile(payload) {
   callRubyJson('rename_profile', payload)
 }
 
+// Подтверждаемые операции (delete/uninstall/restore) оверлей не включают до
+// самого подтверждения — Ruby ведёт его после confirm_answer.
 export function deleteProfile(id, name) {
-  setBusy(id, 'delete', `Удаление «${name}»…`)
   if (isMock) {
+    setBusy(id, 'delete', `Удаление «${name}»…`)
     applyMockAction('delete_profile', { id })
     return
   }
@@ -204,8 +275,8 @@ export function installRbz(profileId, profileName) {
 }
 
 export function uninstallExtension(profileId, extId) {
-  setBusy(extId, 'uninstall', `Удаление «${extId}»…`)
   if (isMock) {
+    setBusy(extId, 'uninstall', `Удаление «${extId}»…`)
     applyMockAction('uninstall_extension', { profile: profileId, ext: extId })
     return
   }
@@ -222,8 +293,8 @@ export function backupProfile(id) {
 }
 
 export function restoreBackup(id, file) {
-  setBusy(id, 'restore', 'Восстановление из снимка…')
   if (isMock) {
+    setBusy(id, 'restore', 'Восстановление из снимка…')
     applyMockAction('restore_backup', { id, file })
     return
   }
@@ -247,4 +318,4 @@ export function syncSelf() {
   callRuby('sync_self')
 }
 
-export { state, isMock, toast, clearBusy, setBusy }
+export { state, isMock, toast, clearBusy, setBusy, clearTask }

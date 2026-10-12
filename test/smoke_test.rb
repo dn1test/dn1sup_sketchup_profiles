@@ -518,6 +518,59 @@ rescue RuntimeError
 end
 assert 'rename_profile', Core.update_profile_meta('training', 'Обучение 2', 'новое')['ok'] == true &&
                          Core.find_profile('training')['name'] == 'Обучение 2'
+
+# --- чистый профиль: только менеджер и Save Settings, без наследования Prefs ---
+File.write(File.join(main_store, 'dn1sup_save_settings.rb'), "# save settings\n")
+FileUtils.mkdir_p(File.join(main_store, 'dn1sup_save_settings'))
+File.write(File.join(main_store, 'dn1sup_save_settings', 'main.rb'), '# code')
+res = Core.create_profile(id: 'clean', name: 'Чистый', source_id: 'main', clean: true)
+cl_store = Core.profile_store_plugins('clean')
+assert 'clean: создан', res['ok'] == true, res.inspect
+assert 'clean: состав (только менеджер и Save Settings)',
+       dir_children(cl_store).all? { |n| n =~ /\Adn1sup_sketchup_profiles(\.rb)?\z|dn1sup_save_settings/ },
+       dir_children(cl_store).inspect
+assert 'clean: Save Settings на месте (rb + папка)',
+       File.file?(File.join(cl_store, 'dn1sup_save_settings.rb')) &&
+       File.file?(File.join(cl_store, 'dn1sup_save_settings', 'main.rb'))
+# Примечание: в песочнице fake-junction папки менеджера — пустой маркер, поэтому
+# self_inject оставляет папку менеджера пустой (в живом SketchUp через junction
+# копируются реальные файлы; rb-регистратор гарантируется self_inject всегда).
+assert 'clean: менеджер на месте (rb + папка)',
+       File.file?(File.join(cl_store, 'dn1sup_sketchup_profiles.rb')) &&
+       File.directory?(File.join(cl_store, 'dn1sup_sketchup_profiles'))
+assert 'clean: стороннее и dev-твины не копируются',
+       !File.exist?(File.join(cl_store, 'curic_deep_select.rb')) &&
+       !File.exist?(File.join(cl_store, 'dn1sup_ext_manager.rb')) &&
+       !File.exist?(File.join(cl_store, 'dn1sup_sketchup_profiles_dev.rb'))
+assert 'clean: Prefs не наследуются',
+       !File.directory?(Core.profile_store_prefs('clean'))
+assert 'clean: счётчик профиля', Core.state_payload['profiles'].find { |p| p['id'] == 'clean' }['extensions_count'] == dir_children(cl_store).size
+
+# --- пустой профиль: только менеджер, Prefs наследуются ---
+res = Core.create_profile(id: 'empt', name: 'Пустой', source_id: 'main',
+                          include: ['dn1sup_sketchup_profiles'])
+em_store = Core.profile_store_plugins('empt')
+assert 'empty: только менеджер',
+       res['ok'] == true && dir_children(em_store) == ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb'],
+       dir_children(em_store).inspect
+assert 'empty: Prefs наследуются как раньше',
+       File.file?(File.join(Core.profile_store_prefs('empt'), 'SharedPreferences.json'))
+
+# откат при сбое и для clean-профиля
+saved_robocopy = Core::Win.method(:robocopy)
+Core::Win.define_singleton_method(:robocopy) { |*args, **kw| false }
+begin
+  Core.create_profile(id: 'rollback_clean', name: 'x', source_id: 'main', clean: true)
+  assert 'create clean: откат при сбое', false
+rescue RuntimeError
+  assert 'create clean: откат при сбое',
+         !File.directory?(Core.profile_store_root('rollback_clean')) &&
+         Core.find_profile('rollback_clean').nil?
+end
+Core::Win.define_singleton_method(:robocopy, saved_robocopy)
+assert 'delete: чистый и пустой профили удаляются',
+       Core.delete_profile('clean')['ok'] == true && Core.delete_profile('empt')['ok'] == true &&
+       !File.directory?(Core.profile_store_root('clean')) && !File.directory?(Core.profile_store_root('empt'))
 begin
   Core.delete_profile('main')
   assert 'delete: main отклонён', false
@@ -761,6 +814,66 @@ assert 'dispatch begin_migration (инициализировано) → ok:false
 dlg.scripts.clear
 Main.dispatch(dlg, 'sync_self', '')
 assert 'dispatch sync_self → ok', dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":true') }
+
+# ---- task-оверлей / confirm-поток / get_progress -----------------------------------
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'get_progress', '')
+assert 'dispatch get_progress → push progress', dlg.scripts.grep(/"progress"/).any?
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'delete_profile', JSON.generate('id' => 'no_such'))
+assert 'dispatch delete_profile: неизвестный → ошибка без confirm',
+       dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":false') } &&
+       dlg.scripts.grep(/"confirm"/).empty?
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'delete_profile', JSON.generate('id' => 'training'))
+confirm_script = dlg.scripts.grep(/pushResult\("confirm"/).last
+assert 'dispatch delete_profile → confirm push (без messagebox)',
+       !!confirm_script && $ui_log.none? { |e| e[0] == :messagebox && e[1].to_s.include?('Удалить профиль') }
+token = JSON.parse(confirm_script[/pushResult\("confirm", (.*)\);/, 1])['token']
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'confirm_answer', JSON.generate('token' => token, 'yes' => false))
+assert 'confirm_answer: отказ → Отменено, профиль жив',
+       dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('Отменено') } &&
+       !Core.find_profile('training').nil?
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'delete_profile', JSON.generate('id' => 'training'))
+token2 = JSON.parse(dlg.scripts.grep(/pushResult\("confirm"/).last[/pushResult\("confirm", (.*)\);/, 1])['token']
+dlg.scripts.clear
+Main.dispatch(dlg, 'confirm_answer', JSON.generate('token' => token2, 'yes' => true))
+assert 'confirm_answer: да → профиль удалён',
+       dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":true') } &&
+       Core.find_profile('training').nil? && !File.directory?(Core.profile_store_root('training'))
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'confirm_answer', JSON.generate('token' => 'deadbeef', 'yes' => false))
+assert 'confirm_answer: неизвестный токен игнорируется', dlg.scripts.grep(/"action_result"/).empty?
+
+# откат создания при сбое посреди операции
+begin
+  Core.create_profile(id: 'training2', name: 'x', source_id: 'train_no_such')
+  assert 'create_profile: откат при сбое после копирования', false
+rescue RuntimeError
+  assert 'create_profile: откат при сбое после копирования', true
+end
+
+win_robocopy_backup = Core::Win.method(:robocopy)
+Core::Win.define_singleton_method(:robocopy) { |*args, **kw| false }
+out = nil
+begin
+  Core.create_profile(id: 'rollback_test', name: 'x', source_id: 'main')
+rescue RuntimeError
+  out = File.directory?(Core.profile_store_root('rollback_test'))
+end
+Core::Win.define_singleton_method(:robocopy, win_robocopy_backup)
+assert 'create_profile: сбой robocopy → хранилище не осталось',
+       !File.directory?(Core.profile_store_root('rollback_test')) && Core.find_profile('rollback_test').nil?
+
+assert 'прогресс сбрасывается после операций', Core.progress_snapshot.nil?
 
 # регистратор
 class SketchupExtension

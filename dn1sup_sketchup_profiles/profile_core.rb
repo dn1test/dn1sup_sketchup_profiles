@@ -32,17 +32,30 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.1.0'
+    VERSION       = '0.2.0'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
 
     PLUGIN_DIR = File.dirname(__FILE__).freeze
 
+    # Состав «Чистого профиля»: рабочие dn1sup-расширения, достаточные для
+    # переключения профилей (менеджер) и сохранения раскладки интерфейса
+    # (Save Settings). Всё остальное из источника не копируется, настройки
+    # интерфейса (Prefs) не наследуются — SketchUp генерирует их заново.
+    # Базовые имена; в фильтр превращаются вместе с парой «имя.rb».
+    CLEAN_KEEP = %w[dn1sup_sketchup_profiles dn1sup_save_settings].freeze
+
     PROFILE_ID_RE = /\A[a-z][a-z0-9_]{0,31}\z/.freeze
     EXT_NAME_RE   = /\A[A-Za-z0-9_][A-Za-z0-9_.\-]*\z/.freeze
 
     module_function
+
+    # Паттерны фильтра из keep-list: базовое имя + его .rb (fnmatch —
+    # точка в патерне литеральная, поэтому обе формы отдельно).
+    def clean_keep_patterns
+      CLEAN_KEEP.flat_map { |n| [n, "#{n}.rb"] }
+    end
 
     # ---- пути (хуки для тестов) --------------------------------------------------
 
@@ -212,6 +225,39 @@ module Dn1sup
 
     def profile_exists?(id)
       !find_profile(id).nil?
+    end
+
+    # ---- прогресс фоновых операций -------------------------------------------------------------
+    # Фазовая сводка долгой операции: пишет фоновый поток (только данные, без
+    # Sketchup API), читает главный поток (команда get_progress). Один активный
+    # слот: диалог стартует операции последовательно, оверлей не пускает вторую.
+
+    def progress_lock
+      @progress_lock ||= Mutex.new
+      @progress_lock.synchronize { yield }
+    end
+
+    def progress_start(action, id: '', phases: [])
+      progress_lock do
+        @progress = { 'action' => action.to_s, 'id' => id.to_s,
+                      'phases' => Array(phases).map(&:to_s),
+                      'current' => nil, 'started_at' => Time.now.to_i }
+      end
+      true
+    end
+
+    def progress_step(name)
+      progress_lock { @progress['current'] = name.to_s if @progress }
+      true
+    end
+
+    def progress_finish
+      progress_lock { @progress = nil }
+      true
+    end
+
+    def progress_snapshot
+      progress_lock { @progress && @progress.dup }
     end
 
     def upsert_profile_meta(meta)
@@ -439,6 +485,7 @@ module Dn1sup
         end
 
         active = detect_active_profile == profile_id.to_s
+        progress_step('mirror')
         installed.each { |name| mirror_item_to_real(profile_id, name) } if active
 
         { 'ok' => true, 'installed' => installed,
@@ -453,36 +500,43 @@ module Dn1sup
     # ---- удаление расширения из профиля ----------------------------------------------------------------
 
     def uninstall_extension(profile_id, ext_id)
-      raise "Профиль «#{profile_id}» не найден" unless profile_exists?(profile_id)
-      unless ext_id.to_s =~ EXT_NAME_RE && !ext_id.to_s.include?('..')
-        raise "Некорректное имя расширения: #{ext_id.inspect}"
-      end
-      if ext_id.to_s == ID || ext_id.to_s == "#{ID}_dev"
-        raise 'Менеджер профилей нельзя удалить из профиля: без него нечем переключаться'
-      end
+      progress_start('uninstall_extension', id: ext_id.to_s, phases: %w[mirror delete])
+      begin
+        progress_step('mirror')
+        raise "Профиль «#{profile_id}» не найден" unless profile_exists?(profile_id)
+        unless ext_id.to_s =~ EXT_NAME_RE && !ext_id.to_s.include?('..')
+          raise "Некорректное имя расширения: #{ext_id.inspect}"
+        end
+        if ext_id.to_s == ID || ext_id.to_s == "#{ID}_dev"
+          raise 'Менеджер профилей нельзя удалить из профиля: без него нечем переключаться'
+        end
 
-      store_dir = profile_store_plugins(profile_id)
-      rb = File.join(store_dir, "#{ext_id}.rb")
-      sub = File.join(store_dir, ext_id.to_s)
-      removed = []
-      # зеркало в реальном Plugins снимаем ДО удаления хранилища: junction ещё
-      # жив, после rm_rf хранилища он стал бы висячим
-      if detect_active_profile == profile_id.to_s
-        FileUtils.rm_f(File.join(real_plugins_dir, "#{ext_id}.rb"))
-        remove_real_entry(File.join(real_plugins_dir, ext_id.to_s))
-      end
-      if File.file?(rb)
-        FileUtils.rm_f(rb)
-        removed << "#{ext_id}.rb"
-      end
-      if File.directory?(sub)
-        FileUtils.rm_rf(sub)
-        removed << ext_id.to_s
-      end
-      raise "Расширение «#{ext_id}» в профиле не найдено" if removed.empty?
+        store_dir = profile_store_plugins(profile_id)
+        rb = File.join(store_dir, "#{ext_id}.rb")
+        sub = File.join(store_dir, ext_id.to_s)
+        removed = []
+        # зеркало в реальном Plugins снимаем ДО удаления хранилища: junction ещё
+        # жив, после rm_rf хранилища он стал бы висячим
+        if detect_active_profile == profile_id.to_s
+          FileUtils.rm_f(File.join(real_plugins_dir, "#{ext_id}.rb"))
+          remove_real_entry(File.join(real_plugins_dir, ext_id.to_s))
+        end
+        progress_step('delete')
+        if File.file?(rb)
+          FileUtils.rm_f(rb)
+          removed << "#{ext_id}.rb"
+        end
+        if File.directory?(sub)
+          FileUtils.rm_rf(sub)
+          removed << ext_id.to_s
+        end
+        raise "Расширение «#{ext_id}» в профиле не найдено" if removed.empty?
 
-      { 'ok' => true, 'removed' => removed,
-        'message' => "Удалено из профиля «#{find_profile(profile_id)['name']}»: #{removed.join(', ')}#{detect_active_profile == profile_id.to_s ? '. Из меню исчезнет после перезапуска SketchUp.' : '.'}" }
+        { 'ok' => true, 'removed' => removed,
+          'message' => "Удалено из профиля «#{find_profile(profile_id)['name']}»: #{removed.join(', ')}#{detect_active_profile == profile_id.to_s ? '. Из меню исчезнет после перезапуска SketchUp.' : '.'}" }
+      ensure
+        progress_finish
+      end
     end
 
     # ---- самоинъекция менеджера -----------------------------------------------------------------------
@@ -563,49 +617,95 @@ module Dn1sup
     end
 
     def create_profile(id:, name:, description: '', source_id: nil,
-                       include: [], exclude: [])
-      validate_initialized!
-      validate_profile_id!(id)
-      raise "Профиль «#{id}» уже существует" if profile_exists?(id)
-      raise "Хранилище профиля уже есть на диске: #{profile_store_root(id)}" if File.directory?(profile_store_root(id))
+                       include: [], exclude: [], clean: false)
+      progress_start('create_profile', id: id.to_s, phases: %w[check copy prefs meta self])
+      begin
+        progress_step('check')
+        validate_initialized!
+        validate_profile_id!(id)
+        raise "Профиль «#{id}» уже существует" if profile_exists?(id)
+        raise "Хранилище профиля уже есть на диске: #{profile_store_root(id)}" if File.directory?(profile_store_root(id))
 
-      source = source_id.to_s.empty? ? (detect_active_profile.empty? ? MAIN_ID : detect_active_profile) : source_id.to_s
-      raise "Источник «#{source}» не найден" unless profile_exists?(source)
-      src_plugins = profile_store_plugins(source)
-      raise "Хранилище источника не найдено: #{src_plugins}" unless File.directory?(src_plugins)
+        source = source_id.to_s.empty? ? (detect_active_profile.empty? ? MAIN_ID : detect_active_profile) : source_id.to_s
+        raise "Источник «#{source}» не найден" unless profile_exists?(source)
+        src_plugins = profile_store_plugins(source)
+        raise "Хранилище источника не найдено: #{src_plugins}" unless File.directory?(src_plugins)
 
-      excludes = plan_plugins_excludes_for_dir(src_plugins, include, exclude)
-      dst_plugins = profile_store_plugins(id)
-      ok = Win.robocopy(src_plugins, dst_plugins, exclude_names: excludes)
-      raise 'Копирование профиля не удалось (robocopy)' unless ok
+        # clean-профиль: keep-list вместо пользовательских фильтров
+        filters = clean ? [clean_keep_patterns, []] : [include, exclude]
+        excludes = plan_plugins_excludes_for_dir(src_plugins, filters[0], filters[1])
+        dst_plugins = profile_store_plugins(id)
+        progress_step('copy')
+        ok = Win.robocopy(src_plugins, dst_plugins, exclude_names: excludes)
+        raise 'Копирование профиля не удалось (robocopy)' unless ok
 
-      # настройки интерфейса наследуются от источника
-      src_prefs = profile_store_prefs(source)
-      if File.directory?(src_prefs)
-        FileUtils.mkdir_p(profile_store_prefs(id))
-        Dir.children(src_prefs).each { |f| FileUtils.cp(File.join(src_prefs, f), File.join(profile_store_prefs(id), f)) }
+        # настройки интерфейса наследуются от источника (кроме clean-профиля:
+        # пустой Prefs → SketchUp при первом запуске сгенерирует дефолтный)
+        progress_step('prefs')
+        unless clean
+          src_prefs = profile_store_prefs(source)
+          if File.directory?(src_prefs)
+            FileUtils.mkdir_p(profile_store_prefs(id))
+            Dir.children(src_prefs).each { |f| FileUtils.cp(File.join(src_prefs, f), File.join(profile_store_prefs(id), f)) }
+          end
+        end
+
+        progress_step('meta')
+        upsert_profile_meta('id' => id.to_s, 'name' => name.to_s.empty? ? id.to_s : name.to_s,
+                            'description' => description.to_s, 'protected' => false,
+                            'created_at' => Time.now.to_i, 'last_launch' => nil)
+        progress_step('self')
+        self_inject(id)
+        { 'ok' => true, 'id' => id.to_s, 'excluded' => excludes,
+          'message' => if clean
+                         "Создан чистый профиль «#{name}»: менеджер и Save Settings, настройки интерфейса по умолчанию (#{extensions_count(id)} расширений). Профиль сохранён."
+                       else
+                         "Профиль «#{name}» создан из «#{source}»: #{extensions_count(id)} расширений" +
+                           (excludes.empty? ? '' : ", отфильтровано #{excludes.size}") + '. Профиль сохранён.'
+                       end }
+      rescue StandardError, ScriptError
+        rollback_profile_creation!(id)
+        raise
+      ensure
+        progress_finish
       end
+    end
 
-      upsert_profile_meta('id' => id.to_s, 'name' => name.to_s.empty? ? id.to_s : name.to_s,
-                          'description' => description.to_s, 'protected' => false,
-                          'created_at' => Time.now.to_i, 'last_launch' => nil)
-      self_inject(id)
-      { 'ok' => true, 'id' => id.to_s, 'excluded' => excludes,
-        'message' => "Профиль «#{name}» создан из «#{source}»: #{extensions_count(id)} расширений" +
-                     (excludes.empty? ? '' : ", отфильтровано #{excludes.size}") + '. Профиль сохранён.' }
+    # Откат неудачного создания: хранилище на диске появилось только что
+    # (перед копированием его существование проверено), мету снимаем, если
+    # успели записать. Удаляет только то, что создала сама операция.
+    def rollback_profile_creation!(id)
+      id = id.to_s
+      prefs_store = profile_store_prefs(id)
+      FileUtils.rm_rf(prefs_store) if File.directory?(prefs_store)
+      FileUtils.rm_rf(profile_store_root(id)) if File.directory?(profile_store_root(id))
+      data = load_profiles
+      if data['profiles'].any? { |p| p['id'].to_s == id }
+        data['profiles'].reject! { |p| p['id'].to_s == id }
+        save_profiles(data)
+      end
+    rescue StandardError
+      nil
     end
 
     def delete_profile(id)
-      validate_initialized!
-      raise 'Основной профиль удалить нельзя' if id.to_s == MAIN_ID
-      raise "Профиль «#{id}» не найден" unless profile_exists?(id)
-      validate_not_active!(id)
+      progress_start('delete_profile', id: id.to_s, phases: %w[delete meta])
+      begin
+        progress_step('delete')
+        validate_initialized!
+        raise 'Основной профиль удалить нельзя' if id.to_s == MAIN_ID
+        raise "Профиль «#{id}» не найден" unless profile_exists?(id)
+        validate_not_active!(id)
 
-      FileUtils.rm_rf(profile_store_root(id))
-      data = load_profiles
-      data['profiles'].reject! { |p| p['id'].to_s == id.to_s }
-      save_profiles(data)
-      { 'ok' => true, 'message' => "Профиль «#{id}» удалён." }
+        FileUtils.rm_rf(profile_store_root(id))
+        progress_step('meta')
+        data = load_profiles
+        data['profiles'].reject! { |p| p['id'].to_s == id.to_s }
+        save_profiles(data)
+        { 'ok' => true, 'message' => "Профиль «#{id}» удалён." }
+      ensure
+        progress_finish
+      end
     end
 
     def update_profile_meta(id, name, description)
@@ -621,19 +721,25 @@ module Dn1sup
     # ---- снимки --------------------------------------------------------------------------------------------
 
     def backup_profile(id)
-      raise "Профиль «#{id}» не найден" unless profile_exists?(id)
+      progress_start('backup_profile', id: id.to_s, phases: %w[zip])
+      begin
+        progress_step('zip')
+        raise "Профиль «#{id}» не найден" unless profile_exists?(id)
 
-      root = profile_store_root(id)
-      inner = %w[Plugins Prefs].select { |s| File.directory?(File.join(root, s)) }
-      raise 'В профиле нет данных для снимка' if inner.empty?
+        root = profile_store_root(id)
+        inner = %w[Plugins Prefs].select { |s| File.directory?(File.join(root, s)) }
+        raise 'В профиле нет данных для снимка' if inner.empty?
 
-      FileUtils.mkdir_p(backups_dir)
-      out = File.join(backups_dir, "#{id}-#{Time.now.strftime('%Y%m%d-%H%M%S')}.zip")
-      raise 'Не удалось создать архив снимка' unless Win.zip_create(out, root, inner)
+        FileUtils.mkdir_p(backups_dir)
+        out = File.join(backups_dir, "#{id}-#{Time.now.strftime('%Y%m%d-%H%M%S')}.zip")
+        raise 'Не удалось создать архив снимка' unless Win.zip_create(out, root, inner)
 
-      cleanup_backups(id)
-      { 'ok' => true, 'file' => File.basename(out), 'size' => File.size(out),
-        'message' => "Снимок профиля «#{id}» создан: #{File.basename(out)}" }
+        cleanup_backups(id)
+        { 'ok' => true, 'file' => File.basename(out), 'size' => File.size(out),
+          'message' => "Снимок профиля «#{id}» создан: #{File.basename(out)}" }
+      ensure
+        progress_finish
+      end
     end
 
     def list_backups
@@ -664,28 +770,35 @@ module Dn1sup
     end
 
     def restore_backup(profile_id, filename)
-      raise "Профиль «#{profile_id}» не найден" unless profile_exists?(profile_id)
-      validate_not_active!(profile_id)
-      f = File.basename(filename.to_s)
-      raise 'Некорректное имя снимка' unless f =~ /\A[a-z0-9_]+-\d{8}-\d{6}\.zip\z/i
-      full = File.join(backups_dir, f)
-      raise 'Снимок не найден' unless File.file?(full)
+      progress_start('restore_backup', id: profile_id.to_s, phases: %w[extract replace])
+      begin
+        progress_step('extract')
+        raise "Профиль «#{profile_id}» не найден" unless profile_exists?(profile_id)
+        validate_not_active!(profile_id)
+        f = File.basename(filename.to_s)
+        raise 'Некорректное имя снимка' unless f =~ /\A[a-z0-9_]+-\d{8}-\d{6}\.zip\z/i
+        full = File.join(backups_dir, f)
+        raise 'Снимок не найден' unless File.file?(full)
 
-      Dir.mktmpdir('sp_restore') do |tmp|
-        raise 'Не удалось распаковать снимок' unless Win.zip_extract(full, tmp)
-        unless Dir.children(tmp).any? { |n| %w[Plugins Prefs].include?(n) }
-          raise 'В снимке нет данных профиля (ожидались каталоги Plugins/Prefs)'
-        end
+        Dir.mktmpdir('sp_restore') do |tmp|
+          raise 'Не удалось распаковать снимок' unless Win.zip_extract(full, tmp)
+          unless Dir.children(tmp).any? { |n| %w[Plugins Prefs].include?(n) }
+            raise 'В снимке нет данных профиля (ожидались каталоги Plugins/Prefs)'
+          end
 
-        root = profile_store_root(profile_id)
-        FileUtils.rm_rf(root)
-        FileUtils.mkdir_p(root)
-        %w[Plugins Prefs].each do |side|
-          src = File.join(tmp, side)
-          FileUtils.cp_r(src, File.join(root, side)) if File.directory?(src)
+          progress_step('replace')
+          root = profile_store_root(profile_id)
+          FileUtils.rm_rf(root)
+          FileUtils.mkdir_p(root)
+          %w[Plugins Prefs].each do |side|
+            src = File.join(tmp, side)
+            FileUtils.cp_r(src, File.join(root, side)) if File.directory?(src)
+          end
         end
+        { 'ok' => true, 'message' => "Профиль «#{profile_id}» восстановлен из снимка #{f}." }
+      ensure
+        progress_finish
       end
-      { 'ok' => true, 'message' => "Профиль «#{profile_id}» восстановлен из снимка #{f}." }
     end
 
     # ---- хелпер: job / запуск / результат ---------------------------------------------------------------------

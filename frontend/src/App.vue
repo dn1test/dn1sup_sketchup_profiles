@@ -6,11 +6,12 @@ import {
 } from 'lucide-vue-next'
 import {
   state, loadState, beginMigration, getBackups, restoreBackup, deleteBackup,
-  syncSelf, createProfile, renameProfile, isMock, toast
+  syncSelf, createProfile, renameProfile, isMock, toast, answerConfirm
 } from './composables/useSketchupBridge'
 import { isValidId, slugify, uniqueId } from './id_slug'
 import ProfileCard from './components/ProfileCard.vue'
 import ExtensionsPanel from './components/ExtensionsPanel.vue'
+import TaskOverlay from './components/TaskOverlay.vue'
 
 onMounted(loadState)
 
@@ -93,11 +94,17 @@ function submitForm() {
     // автосгенерированный не должен молча перезаписать существующий профиль
     id = uniqueId(id, profiles.value.map((p) => p.id))
   }
+  // clean — «чистый профиль»: только менеджер и Save Settings, интерфейс с нуля;
+  // empty — только менеджер, интерфейс наследуется от источника
   const filters = form.value.mode === 'dn1sup'
     ? { include: ['dn1sup_*'], exclude: [] }
     : form.value.mode === 'no_dn1sup'
       ? { include: [], exclude: ['dn1sup_*', 'dn1c_*'] }
-      : { include: [], exclude: [] }
+      : form.value.mode === 'clean'
+        ? { include: ['dn1sup_sketchup_profiles', 'dn1sup_save_settings'], exclude: [], clean: true }
+        : form.value.mode === 'empty'
+          ? { include: ['dn1sup_sketchup_profiles'], exclude: [] }
+          : { include: [], exclude: [] }
   createProfile({
     id,
     name: form.value.name.trim() || id,
@@ -302,16 +309,11 @@ function backToProfiles() {
     <footer v-if="data?.initialized" class="px-4 py-1.5 border-t border-slate-200 dark:border-slate-800
                  bg-white dark:bg-slate-900/80 text-[11px] text-slate-400 flex items-center gap-3">
       <span class="font-mono truncate" :title="data.store_root">{{ data.store_root }}</span>
-      <span v-if="!data.junction_roaming || !data.junction_local" class="text-red-500 inline-flex items-center gap-1">
-        <AlertTriangle class="w-3.5 h-3.5" />
-        junction {{ !data.junction_roaming ? 'roaming ' : '' }}{{ !data.junction_local ? 'local' : '' }} не подключен
-      </span>
       <span v-if="!data.su_exe_found" class="text-amber-500">SketchUp.exe не найден — автоперезапуск невозможен</span>
     </footer>
 
     <!-- Модальная форма профиля -->
-    <div v-if="showForm" class="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-6 z-50" @click.self="showForm = false">
-      <div class="sp-card w-full max-w-md p-5 flex flex-col gap-3 !bg-white dark:!bg-slate-900 shadow-2xl">
+    <div v-if="showForm" class="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-6 z-50" @click.self="showForm = false">      <div class="sp-card w-full max-w-md p-5 flex flex-col gap-3 !bg-white dark:!bg-slate-900 shadow-2xl">
         <div class="font-semibold">{{ form.editing ? 'Профиль — описание' : 'Новый профиль' }}</div>
 
         <template v-if="!form.editing">
@@ -351,7 +353,10 @@ function backToProfiles() {
               <input type="radio" value="no_dn1sup" v-model="form.mode" class="accent-brand-500" /> всё, кроме dn1sup_*/dn1c_*
             </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="empty" v-model="form.mode" class="accent-brand-500" /> без расширений (пустой)
+              <input type="radio" value="empty" v-model="form.mode" class="accent-brand-500" /> пустой: только менеджер профилей
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="radio" value="clean" v-model="form.mode" class="accent-brand-500" /> чистый: менеджер и Save Settings, интерфейс с нуля
             </label>
           </div>
           <p class="text-[11px] text-slate-400">Менеджер профилей добавляется в профиль автоматически.</p>
@@ -386,6 +391,27 @@ function backToProfiles() {
         <span class="font-mono text-slate-200">…\dn1sup_sketchup_profiles\logs\</span>
       </div>
     </div>
+
+    <!-- Подтверждение внутри диалога (нативный messagebox из колбэка ненадёжен) -->
+    <div v-if="state.confirm && !state.task" class="absolute inset-0 bg-black/50 backdrop-blur-[2px]
+         flex items-center justify-center p-6 z-[80]" @click.self="answerConfirm(state.confirm.token, false)">
+      <div class="sp-card w-full max-w-md p-5 flex flex-col gap-4 !bg-white dark:!bg-slate-900 shadow-2xl">
+        <div class="flex items-start gap-2.5">
+          <AlertTriangle class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div class="font-semibold leading-snug">Подтверждение</div>
+        </div>
+        <div class="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-line leading-relaxed select-text">
+          {{ state.confirm.text }}
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button class="sp-btn-ghost" @click="answerConfirm(state.confirm.token, false)">Отмена</button>
+          <button class="sp-btn-danger" data-test="confirm-yes" @click="answerConfirm(state.confirm.token, true)">Да, продолжить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Блокирующий оверлей долгой операции -->
+    <TaskOverlay />
 
     <!-- Тосты -->
     <div class="absolute bottom-8 right-4 z-[70] flex flex-col gap-2 max-w-[420px]">
