@@ -380,9 +380,10 @@ module Dn1sup
       true
     end
 
-    # Удаляет элемент реального Plugins: junction снимается, реальный каталог/файл удаляется.
+    # Удаляет элемент реального Plugins: junction снимается, реальный каталог/файл
+    # удаляется. Обрабатывает и висячий junction (exist? за ним false).
     def remove_real_entry(path)
-      return unless File.exist?(path)
+      return unless Win.fs_entry?(path.to_s)
 
       if Win.junction?(path)
         Win.remove_junction(path)
@@ -461,6 +462,12 @@ module Dn1sup
       rb = File.join(store_dir, "#{ext_id}.rb")
       sub = File.join(store_dir, ext_id.to_s)
       removed = []
+      # зеркало в реальном Plugins снимаем ДО удаления хранилища: junction ещё
+      # жив, после rm_rf хранилища он стал бы висячим
+      if detect_active_profile == profile_id.to_s
+        FileUtils.rm_f(File.join(real_plugins_dir, "#{ext_id}.rb"))
+        remove_real_entry(File.join(real_plugins_dir, ext_id.to_s))
+      end
       if File.file?(rb)
         FileUtils.rm_f(rb)
         removed << "#{ext_id}.rb"
@@ -471,10 +478,6 @@ module Dn1sup
       end
       raise "Расширение «#{ext_id}» в профиле не найдено" if removed.empty?
 
-      if detect_active_profile == profile_id.to_s
-        FileUtils.rm_f(File.join(real_plugins_dir, "#{ext_id}.rb"))
-        remove_real_entry(File.join(real_plugins_dir, ext_id.to_s))
-      end
       { 'ok' => true, 'removed' => removed,
         'message' => "Удалено из профиля «#{find_profile(profile_id)['name']}»: #{removed.join(', ')}#{detect_active_profile == profile_id.to_s ? '. Из меню исчезнет после перезапуска SketchUp.' : '.'}" }
     end

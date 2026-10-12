@@ -9,7 +9,9 @@
 #  * cmd.exe получает команды ЕДИНОЙ СТРОКОЙ с ОБРАТНЫМИ слэшами: раздельные
 #    аргументы/прямые слэши cmd трактует как свои ключи («Недопустимый ключ»).
 #  * junction-детекция — сравнением File.realpath с исходным путём (реальные
-#    каталоги realpath не меняет; junction — резолвится в цель).
+#    каталоги realpath не меняет; junction — резолвится в цель). Висячий
+#    junction (цель удалена) распознаётся по отказу realpath при живой записи
+#    в родительском каталоге — см. fs_entry?/junction?.
 #  * скрытый запуск (без моргания консоли) — WScript.Shell.Run(cmd, 0):
 #    GUI-подсистема wscript, консольному ребёнку прячется окно.
 # =============================================================================
@@ -34,14 +36,27 @@ module Dn1sup
 
       # -- junction -----------------------------------------------------------------
 
+      # Элемент «на месте» (или висячая ссылка): File.exist? следует за целью и
+      # возвращает false для junction/symlink с несуществующей целью — а такая
+      # запись числится в родительском каталоге и её надо уметь удалять.
+      def fs_entry?(path)
+        return false if path.to_s.empty?
+        return true if File.exist?(path.to_s)
+
+        parent = File.dirname(path.to_s)
+        File.directory?(parent) && Dir.children(parent).include?(File.basename(path.to_s))
+      rescue StandardError
+        false
+      end
+
       def junction?(path)
-        return false unless windows? && File.directory?(path.to_s)
+        return false unless windows? && fs_entry?(path.to_s)
 
         norm = ->(p) { to_win(p).downcase.sub(%r{[\\/]+\z}, '') }
         begin
           norm.call(File.realpath(path)) != norm.call(File.expand_path(path))
         rescue Errno::ENOENT, StandardError
-          false
+          true # запись есть, realpath не резолвится — битая ссылка (junction без цели)
         end
       end
 
@@ -56,7 +71,7 @@ module Dn1sup
 
       def create_junction(point, target)
         return false unless windows?
-        return false if File.exist?(point.to_s)
+        return false if fs_entry?(point.to_s)
         return false unless File.directory?(target.to_s)
 
         system("cmd.exe /c mklink /J \"#{to_win(point)}\" \"#{to_win(target)}\"")
