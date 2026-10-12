@@ -1,0 +1,38 @@
+name: Build & Release RBZ
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # нужно для создания GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+
+      - name: Run Smoke Tests
+        run: ruby test/smoke_test.rb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Profiles RBZ
+        run: ruby tools/pack.rb
+
+      - name: Build release body
+        run: ruby tools/release_body.rb
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/dn1sup_sketchup_profiles-*.rbz
+          body_path: release_body.md
+          generate_release_notes: true

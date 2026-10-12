@@ -1,0 +1,6 @@
+frontend/node_modules/
+*.rbz
+.zcode/
+_old/
+_tmp*/
+.orca-preparing/

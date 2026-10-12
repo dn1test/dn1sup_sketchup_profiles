@@ -1,0 +1,10 @@
+[
+  {
+    "id": "dn1sup_sketchup_profiles",
+    "name": "DN1Sup SketchUp Profiles",
+    "author": "DN1Sup",
+    "description": "Профили SketchUp: у каждого профиля своя папка расширений и настройки интерфейса; переключение профилей с автоматическим перезапуском SketchUp, установка .rbz в выбранный профиль, снимки-резервные копии",
+    "repo": "dn1test/dn1sup_sketchup_profiles",
+    "version": "0.1.0"
+  }
+]
