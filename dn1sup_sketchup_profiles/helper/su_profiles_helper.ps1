@@ -81,8 +81,19 @@ function Set-Prop($Object, [string]$Name, $Value) {
 # ---- примитивы -------------------------------------------------------------------
 
 function Test-Junction([string]$Path) {
-  if (-not (Test-Path -LiteralPath $Path)) { return $false }
-  return ((Get-Item -LiteralPath $Path -Force).LinkType -eq 'Junction')
+  if (-not (Test-Reparse $Path)) { return $false }
+  try { return ((Get-Item -LiteralPath $Path -Force).LinkType -eq 'Junction') } catch { return $false }
+}
+
+# Reparse-point детект, работает и для ВИСЯЧЕГО junction (Test-Path/Get-Item
+# за отсутствующей целью дают $false): атрибут ReparsePoint читается по самой
+# записи, цель не нужна.
+function Test-Reparse([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+  try {
+    $attr = [System.IO.File]::GetAttributes($Path)
+    return (($attr -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+  } catch { return $false }
 }
 
 function Remove-Junction([string]$Path) {
@@ -112,12 +123,21 @@ function Copy-Tree([string]$Src, [string]$Dst, [string[]]$ExcludeNames = @()) {
 }
 
 # Удаляет элемент реального Plugins: junction снимается (оригинал живёт
-# в хранилище), реальный файл/каталог удаляется насовсем.
+# в хранилище), реальный файл/каталог удаляется насовсем. Висячий junction
+# тоже снимается: Test-Reparse не ходит к цели.
 function Remove-RealEntry([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return }
+  if (Test-Reparse $Path) {
+    if (Test-Junction $Path) {
+      Remove-Junction $Path
+      return
+    }
+    # ReparsePoint другого типа (symlink) — снимаем тем же способом.
+    [System.IO.Directory]::Delete($Path, $false)
+    return
+  }
   if (-not (Test-Path -LiteralPath $Path)) { return }
-  if (Test-Junction $Path) {
-    Remove-Junction $Path
-  } elseif (Test-Path -LiteralPath $Path -PathType Container) {
+  if (Test-Path -LiteralPath $Path -PathType Container) {
     Remove-Item -LiteralPath $Path -Recurse -Force
   } else {
     Remove-Item -LiteralPath $Path -Force

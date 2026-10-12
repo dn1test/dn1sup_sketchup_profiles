@@ -149,9 +149,12 @@ module Dn1sup
       def zip_extract(zip_path, dest)
         return false unless windows? && File.file?(zip_path.to_s)
 
+        # Успех проверяем по exit-коду tar: dest создаётся mkdir_p заранее,
+        # поэтому только наличие папки маскировало частичную распаковку
+        # битого архива.
         FileUtils.mkdir_p(dest.to_s)
-        system("tar.exe -xf \"#{to_win(zip_path)}\" -C \"#{to_win(dest)}\"")
-        File.directory?(dest.to_s)
+        ok = system("tar.exe -xf \"#{to_win(zip_path)}\" -C \"#{to_win(dest)}\"")
+        File.directory?(dest.to_s) && ok == true && $?.exitstatus.to_i.zero?
       rescue StandardError
         false
       end

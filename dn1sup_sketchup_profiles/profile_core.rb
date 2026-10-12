@@ -371,7 +371,10 @@ module Dn1sup
       dst = File.join(real_plugins_dir, name)
       FileUtils.mkdir_p(real_plugins_dir)
       if File.file?(src)
-        FileUtils.rm_f(dst)
+        # remove_real_entry, а не rm_f: dst может быть каталогом или
+        # (висячим) junction от прежней установки — rm_f на каталоге
+        # падает с EISDIR.
+        remove_real_entry(dst)
         FileUtils.cp(src, dst)
       elsif File.directory?(src)
         remove_real_entry(dst)
