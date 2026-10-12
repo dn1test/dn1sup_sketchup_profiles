@@ -6,8 +6,9 @@ import {
 } from 'lucide-vue-next'
 import {
   state, loadState, beginMigration, getBackups, restoreBackup, deleteBackup,
-  syncSelf, createProfile, renameProfile, isMock
+  syncSelf, createProfile, renameProfile, isMock, toast
 } from './composables/useSketchupBridge'
+import { isValidId, slugify, uniqueId } from './id_slug'
 import ProfileCard from './components/ProfileCard.vue'
 import ExtensionsPanel from './components/ExtensionsPanel.vue'
 
@@ -36,6 +37,8 @@ function onBeginMigration() {
 
 const showForm = ref(false)
 const form = ref({ id: '', name: '', description: '', source: '', mode: 'empty', editing: null })
+const idTouched = ref(false)
+const idValidNow = () => isValidId(form.value.id.trim().toLowerCase())
 
 function openCreateForm(cloneFrom = null) {
   form.value = {
@@ -46,6 +49,7 @@ function openCreateForm(cloneFrom = null) {
     mode: cloneFrom ? 'clone' : 'empty',
     editing: null
   }
+  idTouched.value = false
   showForm.value = true
 }
 
@@ -54,26 +58,53 @@ function openEditForm(profile) {
     id: profile.id, name: profile.name, description: profile.description,
     source: '', mode: 'clone', editing: profile.id
   }
+  idTouched.value = true
   showForm.value = true
 }
+
+// id заполняется сам из названия, пока пользователь не начал править его руками
+function onNameInput() {
+  if (!idTouched.value) form.value.id = slugify(form.value.name)
+}
+
+function onManualId() {
+  idTouched.value = form.value.id.trim().length > 0
+}
+
+const canSubmit = () => form.value.editing ||
+  !!idValidNow() || !!slugify(form.value.id || form.value.name)
 
 function submitForm() {
   if (form.value.editing) {
     renameProfile({ id: form.value.id, name: form.value.name, description: form.value.description })
-  } else {
-    const filters = form.value.mode === 'dn1sup'
-      ? { include: ['dn1sup_*'], exclude: [] }
-      : form.value.mode === 'no_dn1sup'
-        ? { include: [], exclude: ['dn1sup_*', 'dn1c_*'] }
-        : { include: [], exclude: [] }
-    createProfile({
-      id: form.value.id.trim().toLowerCase(),
-      name: form.value.name.trim() || form.value.id.trim(),
-      description: form.value.description.trim(),
-      source: form.value.source,
-      ...filters
-    })
+    showForm.value = false
+    return
   }
+  // Ручной валидный id оставляем как есть (проверит ядро, «уже существует» —
+  // понятно из тоста); кириллицу/мусор — транслитерацией из названия.
+  const rawId = form.value.id.trim().toLowerCase()
+  const manual = isValidId(rawId)
+  let id = manual ? rawId : slugify(rawId || form.value.name)
+  if (!id) {
+    toast('err', 'Не удалось составить идентификатор. Нужны строчные латинские буквы, цифры и _ (до 32 символов), первый — буква. Например: training.', 9000)
+    return
+  }
+  if (!manual) {
+    // автосгенерированный не должен молча перезаписать существующий профиль
+    id = uniqueId(id, profiles.value.map((p) => p.id))
+  }
+  const filters = form.value.mode === 'dn1sup'
+    ? { include: ['dn1sup_*'], exclude: [] }
+    : form.value.mode === 'no_dn1sup'
+      ? { include: [], exclude: ['dn1sup_*', 'dn1c_*'] }
+      : { include: [], exclude: [] }
+  createProfile({
+    id,
+    name: form.value.name.trim() || id,
+    description: form.value.description.trim(),
+    source: form.value.source,
+    ...filters
+  })
   showForm.value = false
 }
 
@@ -285,12 +316,18 @@ function backToProfiles() {
 
         <template v-if="!form.editing">
           <label class="flex flex-col gap-1">
-            <span class="sp-label">идентификатор (латиница, для папки)</span>
-            <input v-model="form.id" class="sp-input font-mono" placeholder="например, training" spellcheck="false" />
+            <span class="sp-label">идентификатор (латиница, цифры, _ — для папки)</span>
+            <input v-model="form.id" class="sp-input font-mono" placeholder="обучение → obuchenie" spellcheck="false"
+                   @input="onManualId" />
+            <span class="text-[10px]" :class="idValidNow() ? 'text-green-600 dark:text-green-400' : 'text-slate-400'">
+              {{ idValidNow()
+                ? '✓ ' + form.id.trim().toLowerCase()
+                : 'заполнится сам из названия; свой вариант — строчными латинскими, до 32 символов' }}
+            </span>
           </label>
           <label class="flex flex-col gap-1">
             <span class="sp-label">название</span>
-            <input v-model="form.name" class="sp-input" placeholder="Например: Обучение" />
+            <input v-model="form.name" class="sp-input" placeholder="Например: Обучение" @input="onNameInput" />
           </label>
           <label class="flex flex-col gap-1">
             <span class="sp-label">описание</span>
@@ -332,7 +369,7 @@ function backToProfiles() {
 
         <div class="flex justify-end gap-2 pt-1">
           <button class="sp-btn-ghost" @click="showForm = false">Отмена</button>
-          <button class="sp-btn-primary" :disabled="form.editing ? false : !form.id.trim()" @click="submitForm">
+          <button class="sp-btn-primary" :disabled="!canSubmit()" @click="submitForm">
             {{ form.editing ? 'Сохранить' : 'Создать (копирование)' }}
           </button>
         </div>
