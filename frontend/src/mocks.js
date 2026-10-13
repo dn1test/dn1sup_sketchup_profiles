@@ -39,7 +39,6 @@ let mockProfiles = [
 const mockExtensions = [
   { id: 'dn1sup_sketchup_profiles', name: 'DN1Sup SketchUp Profiles', version: '0.1.0', kind: 'self', has_rb: true, has_dir: true },
   { id: 'dn1sup_ext_manager', name: 'DN1Sup Extension Store', version: '0.11.2', kind: 'dn1sup', has_rb: true, has_dir: true },
-  { id: 'dn1sup_ext_manager_dev', name: 'DN1Sup Extension Store [DEV]', version: '0.11.2', kind: 'dev', has_rb: true, has_dir: true },
   { id: 'curic_deep_select', name: 'Curic Deep Select', version: '', kind: 'third_party', has_rb: true, has_dir: true },
   { id: 'ladb_opencutlist', name: 'OpenCutList', version: '', kind: 'third_party', has_rb: true, has_dir: true },
   { id: 'fillet', name: 'Fillet', version: '', kind: 'third_party', has_rb: true, has_dir: false }

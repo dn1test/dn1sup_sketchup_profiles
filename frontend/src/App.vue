@@ -157,11 +157,6 @@ function backToProfiles() {
         <div class="font-semibold leading-tight">Профили SketchUp</div>
         <div class="text-[11px] text-slate-400 leading-tight flex items-center gap-1.5">
           <span>DN1Sup · v{{ data?.version || '…' }}{{ isMock ? ' · mock' : '' }}</span>
-          <span
-            v-if="data?.dev_build"
-            class="text-[10px] font-bold tracking-wide px-1.5 py-px rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 whitespace-nowrap"
-            title="Работает dev-вариант (рабочая копия sketchup-dev-mcp), не релиз"
-          >DEV</span>
           <template v-if="data?.initialized">
             · SketchUp {{ data.year }} · активен: {{ activeProfile?.name || '—' }}
           </template>
@@ -220,14 +215,14 @@ function backToProfiles() {
               <input type="checkbox" v-model="createDev" class="mt-0.5 accent-brand-500" />
               <span>
                 <b>Разработка</b> — сразу создать профиль с расширениями
-                <span class="sp-id-badge">dn1sup_*</span> (прод + dev) и MCP-мостом
+                <span class="sp-id-badge">dn1sup_*</span> и MCP-мостом
               </span>
             </label>
             <label class="flex items-start gap-2.5 cursor-pointer">
               <input type="checkbox" v-model="createDrafting" class="mt-0.5 accent-brand-500" />
               <span>
                 <b>Черчение</b> — сразу создать профиль для проектной работы:
-                рабочий набор сторонних расширений, без <span class="sp-id-badge">dn1sup_*</span> и dev-вариантов
+                рабочий набор сторонних расширений, без <span class="sp-id-badge">dn1sup_*</span>
               </span>
             </label>
             <p class="text-[12px] text-slate-400">

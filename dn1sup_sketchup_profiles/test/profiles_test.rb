@@ -63,8 +63,8 @@ module Dn1sup::SketchupProfiles::Test
 
   test 'версия расширения согласована' do
     assert(Core::VERSION =~ /\A\d+\.\d+\.\d+\z/, "VERSION=#{Core::VERSION}")
-    # Регистратор: dev-твин (<base>_dev.rb) рядом с папкой плагина, свой
-    # регистратор уродня или прод-регистратор сверху.
+    # Регистратор — один (`dn1sup_sketchup_profiles.rb` рядом с папкой плагина),
+    # _dev-двойников больше нет.
     parent_name = File.basename(File.dirname(Core::PLUGIN_DIR))
     candidates = [
       File.join(Core::PLUGIN_DIR, '..', '..', "#{parent_name}.rb"),

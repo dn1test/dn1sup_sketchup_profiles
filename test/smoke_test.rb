@@ -103,6 +103,8 @@ def build_sandbox_data!
     end
   end
   %w[dn1sup_ext_manager_dev].each do |id|
+    # Остаток старого _dev-двойника: должен listing-оваться как обычное
+    # dn1sup-расширение (kind 'dn1sup'), а не отдельным каналом.
     File.write(File.join(REAL_PLUGINS, "#{id}.rb"), "extension = SketchupExtension.new('#{id}', 'x')\nextension.version = '0.11.2'\n")
     FileUtils.mkdir_p(File.join(REAL_PLUGINS, id))
   end
@@ -422,7 +424,7 @@ assert 'list: пары склеены, версия/имя из регистра
        e['has_rb'] && e['has_dir'] && e['version'] == '0.11.2' && e['name'] == 'DN1Sup Extension Store'
 assert 'list: типы',
        exts.find { |e| e['id'] == 'dn1sup_sketchup_profiles' }['kind'] == 'self' &&
-       exts.find { |e| e['id'] == 'dn1sup_ext_manager_dev' }['kind'] == 'dev' &&
+       exts.find { |e| e['id'] == 'dn1sup_ext_manager_dev' }['kind'] == 'dn1sup' &&
        exts.find { |e| e['id'] == 'curic_deep_select' }['kind'] == 'third_party'
 assert 'list: одиночный .rb', (e = exts.find { |x| x['id'] == 'fillet' }) && e['has_rb'] && !e['has_dir']
 
@@ -538,10 +540,10 @@ assert 'clean: Save Settings на месте (rb + папка)',
 assert 'clean: менеджер на месте (rb + папка)',
        File.file?(File.join(cl_store, 'dn1sup_sketchup_profiles.rb')) &&
        File.directory?(File.join(cl_store, 'dn1sup_sketchup_profiles'))
-assert 'clean: стороннее и dev-твины не копируются',
+assert 'clean: стороннее и остатки _dev не копируются',
        !File.exist?(File.join(cl_store, 'curic_deep_select.rb')) &&
        !File.exist?(File.join(cl_store, 'dn1sup_ext_manager.rb')) &&
-       !File.exist?(File.join(cl_store, 'dn1sup_sketchup_profiles_dev.rb'))
+       !File.exist?(File.join(cl_store, 'dn1sup_ext_manager_dev.rb'))
 assert 'clean: Prefs не наследуются',
        !File.directory?(Core.profile_store_prefs('clean'))
 assert 'clean: счётчик профиля', Core.state_payload['profiles'].find { |p| p['id'] == 'clean' }['extensions_count'] == dir_children(cl_store).size

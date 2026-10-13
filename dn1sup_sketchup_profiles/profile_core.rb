@@ -32,14 +32,12 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.2.1'
+    VERSION       = '0.3.0'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
 
     PLUGIN_DIR = File.dirname(__FILE__).freeze
-    # DEV-вариант живёт в Plugins/<id>_dev/ — признак по имени корневой папки
-    DEV_BUILD  = File.basename(PLUGIN_DIR).end_with?('_dev').freeze
 
     # Состав «Чистого профиля»: рабочие dn1sup-расширения, достаточные для
     # переключения профилей (менеджер) и сохранения раскладки интерфейса
@@ -322,8 +320,6 @@ module Dn1sup
       profiles.each { |p| p['is_active'] = (p['id'] == active) }
       {
         'version' => VERSION,
-        # загружен именно dev-вариант (Plugins/<id>_dev) — для бейджа DEV в шапке
-        'dev_build' => DEV_BUILD,
         'store_version' => STORE_VERSION,
         'initialized' => initialized?,
         'active_profile' => active,
@@ -406,8 +402,7 @@ module Dn1sup
 
     def extension_kind(ext_id)
       name = ext_id.to_s
-      return 'self' if name == ID || name == "#{ID}_dev"
-      return 'dev' if name.end_with?('_dev')
+      return 'self' if name == ID
       return 'dn1sup' if name.start_with?('dn1sup_', 'dn1c_')
 
       'third_party'
@@ -511,7 +506,7 @@ module Dn1sup
         unless ext_id.to_s =~ EXT_NAME_RE && !ext_id.to_s.include?('..')
           raise "Некорректное имя расширения: #{ext_id.inspect}"
         end
-        if ext_id.to_s == ID || ext_id.to_s == "#{ID}_dev"
+        if ext_id.to_s == ID
           raise 'Менеджер профилей нельзя удалить из профиля: без него нечем переключаться'
         end
 
@@ -863,12 +858,12 @@ module Dn1sup
 
     PRESET_DEV = {
       'id' => 'dev', 'name' => 'Разработка',
-      'description' => 'Разработка расширений DN1Sup: только dn1sup_* (прод + dev) и MCP-мост',
+      'description' => 'Разработка расширений DN1Sup: только dn1sup_* и MCP-мост',
       'include' => ['dn1sup_*'], 'exclude' => []
     }.freeze
     PRESET_DRAFTING = {
       'id' => 'drafting', 'name' => 'Черчение',
-      'description' => 'Проектная работа: рабочий набор сторонних расширений, без dn1sup_*/dev',
+      'description' => 'Проектная работа: рабочий набор сторонних расширений, без dn1sup_*',
       'include' => [], 'exclude' => ['dn1sup_*', 'dn1c_*']
     }.freeze
 

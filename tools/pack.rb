@@ -24,7 +24,7 @@ CONFIG = {
 }.freeze
 
 EXCLUDE_FILES = %w[
-  dev_updater.rb .sketchup_dev.json README.md README.MD
+  dev_updater.rb README.md README.MD
   .gitignore package.json package-lock.json CHANGELOG.md NOTES.md
 ].map(&:downcase).freeze
 

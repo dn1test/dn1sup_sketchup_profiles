@@ -90,7 +90,7 @@ GUI — HtmlDialog: Vue 3 + Tailwind CSS (единый стек DN1Sup). Мен�
 
 - Тесты: `ruby test/smoke_test.rb` (песочница, CI-совместимо),
   `ruby test/helper_sandbox_test.rb` (Windows, живой PowerShell + junction),
-  `ext_test id=dn1sup_sketchup_profiles_dev` — в живом SketchUp.
+  `ext_test id=dn1sup_sketchup_profiles` — в живом SketchUp.
 - Frontend: `cd frontend && npm run dev` (браузер, mock-режим) /
   `npm run build` (single-file в `dn1sup_sketchup_profiles/html/`).
 - Сборка .rbz: `ruby tools/pack.rb` → `dist/`.

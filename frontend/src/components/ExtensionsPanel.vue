@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import {
-  PackagePlus, Trash2, RefreshCw, Puzzle, FlaskConical, Boxes, Sparkles, FileCode
+  PackagePlus, Trash2, RefreshCw, Puzzle, Boxes, Sparkles, FileCode
 } from 'lucide-vue-next'
 import {
   state, installRbz, uninstallExtension, getExtensions
@@ -20,7 +20,6 @@ const busyNow = computed(() =>
 const kindMeta = {
   self:     { label: 'менеджер', cls: 'bg-brand-100 dark:bg-brand-900/50 text-brand-700 dark:text-brand-300', icon: Sparkles },
   dn1sup:   { label: 'dn1sup', cls: 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300', icon: Puzzle },
-  dev:      { label: 'dev', cls: 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300', icon: FlaskConical },
   third_party: { label: 'стороннее', cls: 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400', icon: Boxes }
 }
 

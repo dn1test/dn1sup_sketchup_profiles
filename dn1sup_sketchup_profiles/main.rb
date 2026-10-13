@@ -8,8 +8,7 @@ end
 require 'json'
 require 'fileutils'
 require 'securerandom'
-# Апдейтер — из папки расширения (PLUGIN_DIR-относительный путь): в dev-варианте
-# (<id>_dev/) иначе загрузился бы апдейтер прод-установки из Plugins/<id>/.
+# Апдейтер — из папки расширения (PLUGIN_DIR-относительный путь).
 Sketchup.require File.join(File.dirname(__FILE__), 'dn1sup_updater')
 Sketchup.require File.join(File.dirname(__FILE__), 'profile_core')
 # win_helpers загружается profile_core через require_relative.
