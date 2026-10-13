@@ -2,7 +2,7 @@
   "id": "dn1sup_sketchup_profiles",
   "display_name": "DN1Sup SketchUp Profiles",
   "namespace": "Dn1sup::SketchupProfiles",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Профили SketchUp: у каждого профиля своя папка расширений и настройки интерфейса; переключение с перезапуском, установка .rbz в профиль, снимки-резервные копии",
   "creator": "DN1Sup",
   "copyright": "2026 DN1Sup <dn1codegen@gmail.com> (MIT)"

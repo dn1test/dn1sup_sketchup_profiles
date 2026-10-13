@@ -155,8 +155,13 @@ function backToProfiles() {
       </div>
       <div class="min-w-0">
         <div class="font-semibold leading-tight">Профили SketchUp</div>
-        <div class="text-[11px] text-slate-400 leading-tight">
-          DN1Sup · v{{ data?.version || '…' }}{{ isMock ? ' · mock' : '' }}
+        <div class="text-[11px] text-slate-400 leading-tight flex items-center gap-1.5">
+          <span>DN1Sup · v{{ data?.version || '…' }}{{ isMock ? ' · mock' : '' }}</span>
+          <span
+            v-if="data?.dev_build"
+            class="text-[10px] font-bold tracking-wide px-1.5 py-px rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 whitespace-nowrap"
+            title="Работает dev-вариант (рабочая копия sketchup-dev-mcp), не релиз"
+          >DEV</span>
           <template v-if="data?.initialized">
             · SketchUp {{ data.year }} · активен: {{ activeProfile?.name || '—' }}
           </template>

@@ -32,12 +32,14 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.2.0'
+    VERSION       = '0.2.1'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
 
     PLUGIN_DIR = File.dirname(__FILE__).freeze
+    # DEV-вариант живёт в Plugins/<id>_dev/ — признак по имени корневой папки
+    DEV_BUILD  = File.basename(PLUGIN_DIR).end_with?('_dev').freeze
 
     # Состав «Чистого профиля»: рабочие dn1sup-расширения, достаточные для
     # переключения профилей (менеджер) и сохранения раскладки интерфейса
@@ -320,6 +322,8 @@ module Dn1sup
       profiles.each { |p| p['is_active'] = (p['id'] == active) }
       {
         'version' => VERSION,
+        # загружен именно dev-вариант (Plugins/<id>_dev) — для бейджа DEV в шапке
+        'dev_build' => DEV_BUILD,
         'store_version' => STORE_VERSION,
         'initialized' => initialized?,
         'active_profile' => active,
