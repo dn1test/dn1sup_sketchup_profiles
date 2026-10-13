@@ -1,12 +1,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import {
-  Layers, RefreshCw, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
+  Layers, RefreshCw, RotateCw, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
   CheckCircle2, AlertTriangle, Info, HardDriveDownload, FolderOpen, Rocket, Loader2
 } from 'lucide-vue-next'
 import {
   state, loadState, beginMigration, getBackups, restoreBackup, deleteBackup,
-  syncSelf, createProfile, renameProfile, isMock, toast, answerConfirm
+  syncSelf, checkUpdate, createProfile, renameProfile, isMock, toast, answerConfirm
 } from './composables/useSketchupBridge'
 import { isValidId, slugify, uniqueId } from './id_slug'
 import ProfileCard from './components/ProfileCard.vue'
@@ -178,6 +178,9 @@ function backToProfiles() {
           <UserPlus class="w-4 h-4" /> Новый профиль
         </button>
       </template>
+      <button class="sp-btn-ghost !rounded-full" title="Проверить обновление: сначала локальная папка разработки, потом GitHub" @click="checkUpdate">
+        <RotateCw class="w-4 h-4" />
+      </button>
       <button class="sp-btn-ghost" title="Обновить" @click="loadState">
         <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': !state.ready }" />
       </button>

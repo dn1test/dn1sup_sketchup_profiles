@@ -318,4 +318,13 @@ export function syncSelf() {
   callRuby('sync_self')
 }
 
+// Проверка обновления: сначала локальная папка разработки, потом GitHub.
+export function checkUpdate() {
+  if (isMock) {
+    toast('ok', 'Проверка обновлений (mock): актуальная версия')
+    return
+  }
+  callRuby('check_update')
+}
+
 export { state, isMock, toast, clearBusy, setBusy, clearTask }

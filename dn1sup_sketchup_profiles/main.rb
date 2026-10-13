@@ -25,6 +25,10 @@ module Dn1sup
     # Константы ID / VERSION / PLUGIN_DIR — в profile_core.rb.
     REPO        = 'dn1test/dn1sup_sketchup_profiles'
     ASSET       = "#{ID}.rbz"
+    # Папка разработки задана в самом расширении (корень репозитория):
+    # проверка обновления сначала смотрит её, потом GitHub.
+    DEV_DIR     = File.expand_path('..', PLUGIN_DIR).freeze
+    MANIFEST    = { id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR }.freeze
     HTML_PATH   = File.join(PLUGIN_DIR, 'html', 'index.html').freeze
     ICON_DIR    = File.join(PLUGIN_DIR, 'icons').freeze
     TOOLBAR_NAME = 'DN1Sup SketchUp Profiles'
@@ -356,6 +360,10 @@ module Dn1sup
         push_result(dlg, 'backups', 'items' => Core.list_backups)
       when 'sync_self'
         run_async(dlg, 'sync_self') { Core.sync_self_all }
+      when 'check_update'
+        # Кнопка «круг со стрелками» в шапке: сначала локальная папка
+        # (DEV_DIR из MANIFEST), потом GitHub — ставится свежайшее.
+        Dn1sup::Updater.check_local_first!(MANIFEST.merge(force: true, async: true))
       when 'log_js_error'
         log_js_error(param)
       else
@@ -462,8 +470,8 @@ module Dn1sup
       common = Dn1sup.common_menu
       menu = common.add_submenu('Профили SketchUp')
       menu.add_item(profiles_command)
-      menu.add_item('Проверить обновления менеджера') do
-        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, force: true, async: true })
+      menu.add_item('Проверить обновления') do
+        Dn1sup::Updater.check_local_first!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, force: true, async: true })
       end
 
       setup_toolbar
@@ -471,7 +479,7 @@ module Dn1sup
       timer_id = nil
       timer_id = UI.start_timer(25, false) do
         UI.stop_timer(timer_id) if timer_id
-        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, async: true })
+        Dn1sup::Updater.check_local_first!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, async: true })
       end
 
       file_loaded(__FILE__)
