@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import {
-  Layers, RefreshCw, RotateCw, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
+  Layers, CloudDownload, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
   CheckCircle2, AlertTriangle, Info, HardDriveDownload, FolderOpen, Rocket, Loader2
 } from 'lucide-vue-next'
 import {
@@ -129,6 +129,7 @@ function backToProfiles() {
   state.view = 'profiles'
   state.selectedProfile = null
   state.extensions = []
+  loadState()
 }
 </script>
 
@@ -164,11 +165,8 @@ function backToProfiles() {
           <UserPlus class="w-4 h-4" /> Новый профиль
         </button>
       </template>
-      <button class="sp-btn-ghost !rounded-full" title="Проверить обновление: сначала локальная папка разработки, потом GitHub" @click="checkUpdate">
-        <RotateCw class="w-4 h-4" />
-      </button>
-      <button class="sp-btn-ghost" title="Обновить" @click="loadState">
-        <RefreshCw class="w-4 h-4" :class="{ 'animate-spin': !state.ready }" />
+      <button class="sp-btn-ghost !rounded-full" title="Проверить обновление расширения: сначала локальная папка разработки, потом GitHub" @click="checkUpdate">
+        <CloudDownload class="w-4 h-4" />
       </button>
     </header>
 
