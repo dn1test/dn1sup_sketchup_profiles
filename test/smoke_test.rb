@@ -327,12 +327,49 @@ assert 'su_year из ENV', Core.su_year == '2026'
 assert 'real_plugins определён', Core.real_plugins_dir == REAL_PLUGINS
 assert 'prefs-пути определены', Core.prefs_roaming_path == PREFS_ROAM && Core.prefs_local_path == PREFS_LOC
 assert 'до инициализации initialized? false', !Core.initialized?
+assert 'стор изолирован по году версии', Core.store_root == File.join(LOCALAPP, 'dn1sup_sketchup_profiles', 'SU2026'), Core.store_root
 live_plugins = dir_children(REAL_PLUGINS)
+
+# Живое окружение приоритетнее stale state: state с чужим годом не сбивает su_year.
+Core.save_state('store_version' => 2, 'year' => '2024', 'active_profile' => 'main', 'initialized_at' => Time.now.to_i)
+assert 'su_year не берётся из state чужой версии', Core.su_year == '2026', Core.su_year
+File.delete(Core.state_json_path)
+
+# Год ниже минимального отклоняется.
+old_env = ENV['DN1SUP_PROFILES_YEAR']
+ENV['DN1SUP_PROFILES_YEAR'] = '2023'
+begin
+  Core.prepare_migration
+  assert 'prepare_migration: SketchUp 2023 отклонён', false
+rescue RuntimeError => e
+  assert 'prepare_migration: SketchUp 2023 отклонён', e.message.include?('2024'), e.message
+end
+ENV['DN1SUP_PROFILES_YEAR'] = old_env
+
+# Старый плоский стор 0.3.x переезжает в папку версии.
+legacy_base = File.join(LOCALAPP, 'dn1sup_sketchup_profiles')
+FileUtils.mkdir_p(legacy_base)
+File.write(File.join(legacy_base, 'profiles.json'), JSON.generate('profiles' => []))
+FileUtils.mkdir_p(File.join(legacy_base, 'profiles', 'main', 'Plugins'))
+File.write(File.join(legacy_base, 'profiles', 'main', 'Plugins', 'keep.rb'), '# keep')
+FileUtils.mkdir_p(File.join(legacy_base, 'logs'))
+assert 'legacy-стор мигрирует в SU2026', Core.store_root == File.join(legacy_base, 'SU2026')
+assert 'legacy profiles.json переехал', File.file?(File.join(legacy_base, 'SU2026', 'profiles.json'))
+assert 'legacy profiles переехал', File.file?(File.join(legacy_base, 'SU2026', 'profiles', 'main', 'Plugins', 'keep.rb'))
+assert 'мостик profiles: старое место — junction на новое',
+       Win.junction?(File.join(legacy_base, 'profiles')) &&
+       File.directory?(File.join(legacy_base, 'profiles')) &&
+       Win.junction_target(File.join(legacy_base, 'profiles')).to_s.tr('\\', '/').downcase ==
+         File.join(legacy_base, 'SU2026', 'profiles').tr('\\', '/').downcase
+FileUtils.rm_rf(File.join(legacy_base, 'SU2026'))
+FileUtils.rm_rf(File.join(legacy_base, 'profiles'))
+FileUtils.rm_rf(File.join(legacy_base, 'logs'))
+FileUtils.rm_f(File.join(legacy_base, 'profiles.json'))
 
 # =============================================================================
 # 2. prepare_migration: job v2
 # =============================================================================
-res = Core.prepare_migration(create_ids: %w[dev drafting])
+res = Core.prepare_migration
 assert 'prepare_migration запускает хелпер', res['ok'] == true && res['quitting'] == true, res.inspect
 assert 'хелпер со staging-копией',
        $helper_cmdlines.last.to_s.include?('powershell.exe') &&
@@ -348,12 +385,9 @@ assert 'job: хранилища main и prefs',
        job['store_main_prefs'] == Core.profile_store_prefs('main') &&
        job['prefs_roaming'] == PREFS_ROAM && job['prefs_local'] == PREFS_LOC
 specs = job['create_profiles']
-assert 'job: два клона с фильтрами',
-       specs.size == 2 &&
-       specs.first['exclude_names'].sort == live_plugins.reject { |n| n.start_with?('dn1sup_') }.sort &&
-       specs.last['exclude_names'].sort == live_plugins.select { |n| n.start_with?('dn1sup_') }.sort
-assert 'профили.json: 3 профиля (main первый, защищён)',
-       Core.profile_list.map { |p| p['id'] } == %w[main dev drafting] &&
+assert 'job: без клонов (только main)', specs.is_a?(Array) && specs.empty?, specs.inspect
+assert 'профили.json: только main (защищён)',
+       Core.profile_list.map { |p| p['id'] } == %w[main] &&
        Core.find_profile('main')['protected'] == true
 assert 'job: self — файлы менеджера',
        File.file?(job['self']['rb']) && File.directory?(job['self']['dir'])
@@ -362,7 +396,7 @@ assert 'job: self — файлы менеджера',
 Core.save_state('store_version' => 2, 'year' => '2026', 'active_profile' => 'main',
                 'initialized_at' => Time.now.to_i)
 begin
-  Core.prepare_migration(create_ids: [])
+  Core.prepare_migration
   assert 'повторная prepare_migration отклонена', false
 rescue RuntimeError => e
   assert 'повторная prepare_migration отклонена', !e.message.empty?, e.message
@@ -385,20 +419,9 @@ assert 'реальный Plugins: .rb — реальные файлы',
 assert 'Prefs main: оба файла настроек',
        File.file?(File.join(Core.profile_store_prefs('main'), 'SharedPreferences.json')) &&
        File.file?(File.join(Core.profile_store_prefs('main'), 'PrivatePreferences.json'))
-dev_store = Core.profile_store_plugins('dev')
-dr_store = Core.profile_store_plugins('drafting')
-assert 'dev-клон: только dn1sup_*',
-       dir_children(dev_store).all? { |n| n.start_with?('dn1sup_') } &&
-       dir_children(dev_store).include?('dn1sup_ext_manager')
-assert 'dev-клон: менеджер на месте',
-       File.file?(File.join(dev_store, 'dn1sup_sketchup_profiles.rb')) &&
-       File.file?(File.join(dev_store, 'dn1sup_sketchup_profiles', 'profile_core.rb'))
-assert 'drafting-клон: без dn1sup_*, но с менеджером и сторонними',
-       dir_children(dr_store).none? { |n| n.start_with?('dn1sup_') && n !~ /\Adn1sup_sketchup_profiles/ } &&
-       dir_children(dr_store).include?('ladb_opencutlist') &&
-       File.file?(File.join(dr_store, 'dn1sup_sketchup_profiles.rb'))
-assert 'Prefs клонов унаследованы',
-       File.file?(File.join(Core.profile_store_prefs('drafting'), 'PrivatePreferences.json'))
+
+# Клоны dev/drafting с фильтрами dn1sup_* удалены (0.4.0): дополнительные
+# профили создаются через create_profile(mode: clone/empty/clean) ниже.
 
 # =============================================================================
 # 4. state_payload
@@ -406,10 +429,10 @@ assert 'Prefs клонов унаследованы',
 payload = Core.state_payload
 assert 'payload: initialized/active/store_version',
        payload['initialized'] == true && payload['active_profile'] == 'main' && payload['store_version'] == 2
-assert 'payload: 3 профиля, счётчики',
-       payload['profiles'].size == 3 &&
+assert 'payload: 1 профиль, счётчик',
+       payload['profiles'].size == 1 &&
        payload['profiles'].find { |p| p['id'] == 'main' }['extensions_count'] == live_plugins.size &&
-       payload['profiles'].find { |p| p['id'] == 'dev' }['is_active'] == false
+       payload['profiles'].find { |p| p['id'] == 'main' }['is_active'] == true
 
 Core.save_json(Core.job_result_path, { 'ok' => true, 'phases' => %w[waited switched done] })
 assert 'job_result читается один раз', Core.state_payload['job_result']['ok'] == true
@@ -436,9 +459,12 @@ MiniZip.write(rbz, [
                 ['demo_ext.rb', "# demo\nextension.version = '9.9.9'\n"],
                 ['demo_ext/main.rb', '# code']
               ])
-res = Core.install_rbz('drafting', rbz)
+res = Core.create_profile(id: 'second', name: 'Второй', source_id: 'main', mode: 'clone')
+second_store = Core.profile_store_plugins('second')
+assert 'clone для install-теста создан', res['ok'] == true && res['mode'] == 'clone'
+res = Core.install_rbz('second', rbz)
 assert 'install_rbz в неактивный: только store',
-       res['ok'] == true && File.file?(File.join(dr_store, 'demo_ext.rb')) &&
+       res['ok'] == true && File.file?(File.join(second_store, 'demo_ext.rb')) &&
        !File.exist?(File.join(REAL_PLUGINS, 'demo_ext.rb'))
 res = Core.install_rbz('main', rbz)
 assert 'install_rbz в активный: store + зеркало в реальный Plugins',
@@ -451,7 +477,7 @@ assert 'install_rbz: счётчик профиля вырос',
 bad = File.join(SANDBOX, 'bad.rbz')
 MiniZip.write(bad, [['docs/readme.txt', 'нет регистратора']])
 begin
-  Core.install_rbz('drafting', bad)
+  Core.install_rbz('second', bad)
   assert 'install_rbz: архив без .rb отклонён', false
 rescue RuntimeError => e
   assert 'install_rbz: архив без .rb отклонён', e.message.include?('.rb')
@@ -485,14 +511,14 @@ assert 'uninstall из активного: store и реальный Plugins п�
 # =============================================================================
 # 8. снимки
 # =============================================================================
-res = Core.backup_profile('drafting')
+res = Core.backup_profile('second')
 assert 'backup: создан', res['ok'] == true
 zip_entries = MiniZip.read(File.join(Core.backups_dir, res['file'])).keys
 assert 'backup: Plugins и Prefs внутри',
        zip_entries.any? { |k| k.start_with?('Plugins/') } && zip_entries.any? { |k| k.start_with?('Prefs/') }
-File.delete(File.join(dr_store, 'ladb_opencutlist.rb'))
-res = Core.restore_backup('drafting', Core.list_backups.first['file'])
-assert 'restore: файл вернулся', res['ok'] == true && File.file?(File.join(dr_store, 'ladb_opencutlist.rb'))
+File.delete(File.join(second_store, 'ladb_opencutlist.rb'))
+res = Core.restore_backup('second', Core.list_backups.first['file'])
+assert 'restore: файл вернулся', res['ok'] == true && File.file?(File.join(second_store, 'ladb_opencutlist.rb'))
 begin
   Core.restore_backup('main', Core.list_backups.first['file'])
   assert 'restore: активный отклонён', false
@@ -504,14 +530,28 @@ assert 'delete_backup', Core.delete_backup(Core.list_backups.first['file'])['ok'
 # =============================================================================
 # 9. create_profile / meta / delete
 # =============================================================================
-res = Core.create_profile(id: 'training', name: 'Обучение', source_id: 'main',
-                          include: [], exclude: ['s4u_*', 'curic_*'])
+res = Core.create_profile(id: 'training', name: 'Обучение', source_id: 'main', mode: 'clone')
 tr_store = Core.profile_store_plugins('training')
-assert 'create_profile: фильтр применён, менеджер добавлен',
-       res['ok'] == true && !File.exist?(File.join(tr_store, 's4u_weld')) &&
-       !File.exist?(File.join(tr_store, 'curic_deep_select')) &&
-       File.exist?(File.join(tr_store, 'ladb_opencutlist')) &&
+assert 'create clone: полный набор источника, менеджер на месте',
+       res['ok'] == true && res['mode'] == 'clone' &&
+       dir_children(tr_store).sort == dir_children(main_store).sort &&
        File.file?(File.join(tr_store, 'dn1sup_sketchup_profiles.rb'))
+assert 'create clone: Prefs наследуются',
+       File.file?(File.join(Core.profile_store_prefs('training'), 'SharedPreferences.json'))
+begin
+  Core.create_profile(id: 'training', name: 'Дубль', mode: 'clone')
+  assert 'create_profile: дубль id отклонён', false
+rescue RuntimeError
+  assert 'create_profile: дубль id отклонён', true
+end
+assert 'create_profile: откат дубля не трогает оригинал',
+       !Core.find_profile('training').nil? && File.directory?(Core.profile_store_root('training'))
+begin
+  Core.create_profile(id: 'training_bad', name: 'x', mode: 'dn1sup')
+  assert 'create_profile: удалённый режим отклонён', false
+rescue RuntimeError
+  assert 'create_profile: удалённый режим отклонён', true
+end
 begin
   Core.create_profile(id: 'Bad Id!', name: 'x')
   assert 'create_profile: некорректный id отклонён', false
@@ -525,7 +565,7 @@ assert 'rename_profile', Core.update_profile_meta('training', 'Обучение 
 File.write(File.join(main_store, 'dn1sup_save_settings.rb'), "# save settings\n")
 FileUtils.mkdir_p(File.join(main_store, 'dn1sup_save_settings'))
 File.write(File.join(main_store, 'dn1sup_save_settings', 'main.rb'), '# code')
-res = Core.create_profile(id: 'clean', name: 'Чистый', source_id: 'main', clean: true)
+res = Core.create_profile(id: 'clean', name: 'Чистый', source_id: 'main', mode: 'clean')
 cl_store = Core.profile_store_plugins('clean')
 assert 'clean: создан', res['ok'] == true, res.inspect
 assert 'clean: состав (только менеджер и Save Settings)',
@@ -549,8 +589,7 @@ assert 'clean: Prefs не наследуются',
 assert 'clean: счётчик профиля', Core.state_payload['profiles'].find { |p| p['id'] == 'clean' }['extensions_count'] == dir_children(cl_store).size
 
 # --- пустой профиль: только менеджер, Prefs наследуются ---
-res = Core.create_profile(id: 'empt', name: 'Пустой', source_id: 'main',
-                          include: ['dn1sup_sketchup_profiles'])
+res = Core.create_profile(id: 'empt', name: 'Пустой', source_id: 'main', mode: 'empty')
 em_store = Core.profile_store_plugins('empt')
 assert 'empty: только менеджер',
        res['ok'] == true && dir_children(em_store) == ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb'],
@@ -562,7 +601,7 @@ assert 'empty: Prefs наследуются как раньше',
 saved_robocopy = Core::Win.method(:robocopy)
 Core::Win.define_singleton_method(:robocopy) { |*args, **kw| false }
 begin
-  Core.create_profile(id: 'rollback_clean', name: 'x', source_id: 'main', clean: true)
+  Core.create_profile(id: 'rollback_clean', name: 'x', source_id: 'main', mode: 'clean')
   assert 'create clean: откат при сбое', false
 rescue RuntimeError
   assert 'create clean: откат при сбое',
@@ -579,20 +618,20 @@ begin
 rescue RuntimeError
   assert 'delete: main отклонён', true
 end
-assert 'delete: неактивный удаляется', Core.delete_profile('dev')['ok'] == true &&
-                                       !File.directory?(Core.profile_store_root('dev')) &&
-                                       Core.find_profile('dev').nil?
+assert 'delete: неактивный удаляется', Core.delete_profile('second')['ok'] == true &&
+                                       !File.directory?(Core.profile_store_root('second')) &&
+                                       Core.find_profile('second').nil?
 
 # =============================================================================
 # 10. switch_profile + симуляция
 # =============================================================================
 $helper_cmdlines.clear
-res = Core.switch_profile('drafting')
+res = Core.switch_profile('training')
 assert 'switch: хелпер запущен', res['ok'] == true && res['quitting'] == true, res.inspect
 job = Core.load_json(Core.pending_job_path, {})
 assert 'switch job: from/to/хранилища/prefs',
-       job['kind'] == 'switch' && job['from_profile'] == 'main' && job['target_profile'] == 'drafting' &&
-       job['store_to_plugins'] == dr_store && job['store_to_prefs'] == Core.profile_store_prefs('drafting')
+       job['kind'] == 'switch' && job['from_profile'] == 'main' && job['target_profile'] == 'training' &&
+       job['store_to_plugins'] == tr_store && job['store_to_prefs'] == Core.profile_store_prefs('training')
 
 begin
   Core.switch_profile('main')
@@ -603,18 +642,18 @@ end
 
 simulate_helper!(job)
 
-assert 'после свитча активный — drafting', Core.detect_active_profile == 'drafting'
-assert 'реальный Plugins = набор drafting',
-       dir_children(REAL_PLUGINS) == dir_children(dr_store)
+assert 'после свитча активный — training', Core.detect_active_profile == 'training'
+assert 'реальный Plugins = набор training',
+       dir_children(REAL_PLUGINS) == dir_children(tr_store)
 assert 'реальный Plugins: junction-папки расширений',
        Win.junction?(File.join(REAL_PLUGINS, 'ladb_opencutlist')),
        "junction?=#{Win.junction?(File.join(REAL_PLUGINS, 'ladb_opencutlist'))} " \
        "real=#{File.directory?(File.join(REAL_PLUGINS, 'ladb_opencutlist'))} " \
        "registry=#{FAKE_JUNCTIONS.keys.size} " \
-       "dr_store=#{dir_children(dr_store).inspect} real_now=#{dir_children(REAL_PLUGINS).inspect}"
+       "tr_store=#{dir_children(tr_store).inspect} real_now=#{dir_children(REAL_PLUGINS).inspect}"
 assert 'настройки интерфейса — из Prefs целевого профиля',
        File.file?(PREFS_ROAM) &&
-       File.read(PREFS_ROAM) == File.read(File.join(Core.profile_store_prefs('drafting'), 'SharedPreferences.json'))
+       File.read(PREFS_ROAM) == File.read(File.join(Core.profile_store_prefs('training'), 'SharedPreferences.json'))
 
 # сохранение уходящего main: .rb-файлы обновились в его хранилище
 assert 'уходящий профиль: .rb сохранены',
@@ -625,8 +664,8 @@ File.write(File.join(REAL_PLUGINS, 'zz_new_after.rb'), '# новый скрип�
 Core.switch_profile('main')
 job2 = Core.load_json(Core.pending_job_path, {})
 simulate_helper!(job2)
-assert 'новый .rb из реального Plugins ушёл в хранилище drafting',
-       File.file?(File.join(dr_store, 'zz_new_after.rb'))
+assert 'новый .rb из реального Plugins ушёл в хранилище training',
+       File.file?(File.join(tr_store, 'zz_new_after.rb'))
 assert 'после возврата активный — main, набор восстановлен',
        Core.detect_active_profile == 'main' &&
        dir_children(REAL_PLUGINS) == dir_children(main_store)
@@ -793,25 +832,33 @@ $openpanel_answer = nil
 
 dlg.scripts.clear
 $quit_count = 0
-Core.switch_profile('drafting')
+Core.switch_profile('training')
 dlg.scripts.clear
 $messagebox_answer = IDYES
-Main.dispatch(dlg, 'switch_profile', JSON.generate('id' => 'drafting'))
+Main.dispatch(dlg, 'switch_profile', JSON.generate('id' => 'training'))
 assert 'dispatch switch → quitting + quit',
        dlg.scripts.grep(/"quitting"/).any? && $quit_count == 1
 $messagebox_answer = IDNO
 dlg.scripts.clear
-Main.dispatch(dlg, 'switch_profile', JSON.generate('id' => 'drafting'))
+Main.dispatch(dlg, 'switch_profile', JSON.generate('id' => 'training'))
 assert 'dispatch switch: отказ — без quitting', dlg.scripts.grep(/"quitting"/).empty? && $quit_count == 1
 # откат: вернуть main активным без хелпера (job симулирован не был — просто state)
 state = Core.load_state
-state['active_profile'] = 'drafting'
+state['active_profile'] = 'main'
 Core.save_state(state)
 
 dlg.scripts.clear
-Main.dispatch(dlg, 'begin_migration', JSON.generate('create' => []))
+Main.dispatch(dlg, 'begin_migration', JSON.generate({}))
 assert 'dispatch begin_migration (инициализировано) → ok:false',
        dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":false') }
+
+dlg.scripts.clear
+Main.dispatch(dlg, 'create_profile', JSON.generate('id' => 'via_ui', 'name' => 'Через UI',
+                                                   'description' => '', 'source' => 'main', 'mode' => 'empty'))
+assert 'dispatch create_profile (mode empty) → ok',
+       dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":true') } &&
+       !Core.find_profile('via_ui').nil?
+Core.delete_profile('via_ui')
 
 dlg.scripts.clear
 Main.dispatch(dlg, 'sync_self', '')

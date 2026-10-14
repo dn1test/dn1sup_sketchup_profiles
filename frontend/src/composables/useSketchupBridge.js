@@ -211,12 +211,12 @@ export function getBackups() {
   callRuby('get_backups')
 }
 
-export function beginMigration(createIds) {
+export function beginMigration() {
   if (isMock) {
-    applyMockAction('begin_migration', { create: createIds })
+    applyMockAction('begin_migration', {})
     return
   }
-  callRubyJson('begin_migration', { create: createIds })
+  callRubyJson('begin_migration', {})
 }
 
 // Подтверждение внутри диалога: Ruby прислал 'confirm' с токеном, ответ —
@@ -237,7 +237,7 @@ export function switchProfile(id, name) {
 }
 
 export function createProfile(payload) {
-  setBusy(payload.id, 'create', 'Создание профиля (копирование)…')
+  setBusy(payload.id, 'create', 'Создание профиля…')
   if (isMock) {
     applyMockAction('create_profile', payload)
     return

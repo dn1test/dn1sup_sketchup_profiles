@@ -234,17 +234,14 @@ module Dn1sup
       when 'get_backups'
         push_result(dlg, 'backups', 'items' => Core.list_backups)
       when 'begin_migration'
-        create = Array(data['create']).map(&:to_s)
-        extras = create.map { |c| c == 'dev' ? 'Разработка' : 'Черчение' }.join(', ')
         msg = "Инициализация профилей SketchUp.\n\n" \
               "Текущие данные (расширения, настройки интерфейса) станут профилем «Основной» — " \
               "ничего не потеряется и не изменится.\n" \
               "SketchUp закроется и перезапустится автоматически.\n" \
-              "#{'Дополнительно будут созданы профили: ' + extras + ".\n" unless extras.empty?}" \
               'Продолжить?'
         if UI.messagebox(msg, MB_YESNO) == IDYES
           res = begin
-            Core.prepare_migration(create_ids: create)
+            Core.prepare_migration
           rescue StandardError => e
             { 'ok' => false, 'error' => e.message }
           end
@@ -286,9 +283,7 @@ module Dn1sup
       when 'create_profile'
         run_async(dlg, 'create_profile', data['id']) do
           Core.create_profile(id: data['id'], name: data['name'], description: data['description'],
-                              source_id: data['source'],
-                              include: Array(data['include']), exclude: Array(data['exclude']),
-                              clean: !!data['clean'])
+                              source_id: data['source'], mode: data['mode'].to_s.empty? ? 'clone' : data['mode'])
         end
       when 'rename_profile'
         res = begin

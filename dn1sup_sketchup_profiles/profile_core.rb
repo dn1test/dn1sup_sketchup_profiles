@@ -3,8 +3,8 @@
 # =============================================================================
 # dn1sup_sketchup_profiles/profile_core.rb — ядро менеджера профилей (v2).
 #
-# СХЕМА ИЗОЛЯЦИИ (выведена на живом SketchUp 2026.2):
-# SketchUp 2026 НЕ регистрирует расширения, если каталог версии или сам
+# СХЕМА ИЗОЛЯЦИИ (выведена на живом SketchUp 2026.2, работает в 2024+):
+# SketchUp 2024+ НЕ регистрирует расширения, если каталог версии или сам
 # Plugins — NTFS-junction. Поэтому junction ставится НЕ на системные
 # каталоги, а на ПАПККИ ОТДЕЛЬНЫХ РАСШИРЕНИЙ:
 #
@@ -32,10 +32,13 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.3.0'
+    VERSION       = '0.4.0'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
+    # Поддерживаются SketchUp 2024 и новее: год версии определяется динамически
+    # (su_year), пути Plugins/Prefs/EXE строятся от него.
+    MIN_SUPPORTED_YEAR = 2024
 
     PLUGIN_DIR = File.dirname(__FILE__).freeze
 
@@ -67,8 +70,49 @@ module Dn1sup
       ENV['LOCALAPPDATA'].to_s
     end
 
-    def store_root
+    # База хранилища (общая), профили лежат в подпапке версии SU<год>:
+    # у каждого SketchUp (2024+) свои Plugins/Prefs, поэтому и хранилище
+    # изолировано по году. Старый плоский стор 0.3.x (файлы прямо в базе)
+    # один раз переезжает в папку текущей версии.
+    def store_base
       File.join(env_localappdata, 'dn1sup_sketchup_profiles')
+    end
+
+    def store_root
+      year = su_year
+      dir = year.match?(/\A\d{4}\z/) ? File.join(store_base, "SU#{year}") : File.join(store_base, 'SUunknown')
+      maybe_migrate_legacy_store(dir)
+      dir
+    end
+
+    def maybe_migrate_legacy_store(dir)
+      base_has_legacy = File.file?(File.join(store_base, 'profiles.json'))
+      return false unless base_has_legacy
+      return true if store_base == dir
+
+      # Переезд 0.3.x → SU<год>: двигаем только отсутствующие в цели файлы
+      # (цель уже может существовать — например, state записан раньше).
+      # Для перенесённых КАТАЛОГОВ оставляем junction-мостик старое место →
+      # новое: живые junction-ы реального Plugins, указывающие в старый стор,
+      # продолжают резолвиться до следующего переключения профиля, которое
+      # перестроит их напрямую в новое место.
+      FileUtils.mkdir_p(dir)
+      moved = false
+      Dir.children(store_base).each do |name|
+        next if name =~ /\ASU\d{4}\z/ || name == 'SUunknown'
+
+        from = File.join(store_base, name)
+        to = File.join(dir, name)
+        next if File.exist?(to) || Win.junction?(to)
+
+        is_dir = File.directory?(from) && !Win.junction?(from)
+        FileUtils.mv(from, to)
+        moved = true
+        Win.create_junction(from, to) if is_dir
+      end
+      moved
+    rescue StandardError
+      nil
     end
 
     def profiles_root
@@ -143,17 +187,29 @@ module Dn1sup
       env = ENV['DN1SUP_PROFILES_YEAR'].to_s
       return env if env.match?(/\A\d{4}\z/)
 
-      state = load_state
-      return state['year'].to_s if state['year'].to_s.match?(/\A\d{4}\z/)
-
-      if (m = real_plugins_dir.match(/SketchUp (\d{4})/i))
-        return m[1]
-      end
+      # Живое окружение — в приоритете: расширение работает в любом
+      # SketchUp 2024+ (в т.ч. после смены версии SketchUp). Хранилище
+      # изолировано по году (store_root), поэтому сохранённый state для
+      # определения года не используется — иначе версии делили бы стор.
       if defined?(Sketchup) && Sketchup.respond_to?(:version) &&
          (m = Sketchup.version.to_s.match(/\A(\d+)\./))
         return (2000 + m[1].to_i).to_s
       end
+      # Сырой путь сессии без default-фолбэка: default_real_plugins_dir сам
+      # зовёт su_year, через real_plugins_dir здесь была бы рекурсия.
+      if (m = plugins_root_of_current_session.to_s.match(/SketchUp (\d{4})/i))
+        return m[1]
+      end
+
       ''
+    end
+
+    def validate_su_year!
+      year = su_year
+      raise 'Не удалось определить версию SketchUp (год)' unless year.match?(/\A\d{4}\z/)
+      raise "Требуется SketchUp #{MIN_SUPPORTED_YEAR} или новее (определён #{year})" if year.to_i < MIN_SUPPORTED_YEAR
+
+      year
     end
 
     # ---- хранилище профиля -----------------------------------------------------------
@@ -615,9 +671,16 @@ module Dn1sup
       end
     end
 
-    def create_profile(id:, name:, description: '', source_id: nil,
-                       include: [], exclude: [], clean: false)
+    # Режимы создания профиля:
+    #   clone — всё как в источнике (расширения + настройки интерфейса);
+    #   empty — только менеджер профилей, настройки интерфейса от источника;
+    #   clean — только менеджер и Save Settings, настройки интерфейса с нуля.
+    CREATE_MODES = %w[clone empty clean].freeze
+
+    def create_profile(id:, name:, description: '', source_id: nil, mode: 'clone')
       progress_start('create_profile', id: id.to_s, phases: %w[check copy prefs meta self])
+      created_store = false
+      created_meta = false
       begin
         progress_step('check')
         validate_initialized!
@@ -625,18 +688,26 @@ module Dn1sup
         raise "Профиль «#{id}» уже существует" if profile_exists?(id)
         raise "Хранилище профиля уже есть на диске: #{profile_store_root(id)}" if File.directory?(profile_store_root(id))
 
+        mode = mode.to_s.empty? ? 'clone' : mode.to_s
+        raise "Неизвестный режим создания «#{mode}» (clone/empty/clean)" unless CREATE_MODES.include?(mode)
+
         source = source_id.to_s.empty? ? (detect_active_profile.empty? ? MAIN_ID : detect_active_profile) : source_id.to_s
         raise "Источник «#{source}» не найден" unless profile_exists?(source)
         src_plugins = profile_store_plugins(source)
         raise "Хранилище источника не найдено: #{src_plugins}" unless File.directory?(src_plugins)
 
-        # clean-профиль: keep-list вместо пользовательских фильтров
-        filters = clean ? [clean_keep_patterns, []] : [include, exclude]
-        excludes = plan_plugins_excludes_for_dir(src_plugins, filters[0], filters[1])
+        clean = (mode == 'clean')
+        include_patterns = case mode
+                           when 'clean' then clean_keep_patterns
+                           when 'empty' then ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb']
+                           else []
+                           end
+        excludes = plan_plugins_excludes_for_dir(src_plugins, include_patterns, [])
         dst_plugins = profile_store_plugins(id)
         progress_step('copy')
         ok = Win.robocopy(src_plugins, dst_plugins, exclude_names: excludes)
         raise 'Копирование профиля не удалось (robocopy)' unless ok
+        created_store = true
 
         # настройки интерфейса наследуются от источника (кроме clean-профиля:
         # пустой Prefs → SketchUp при первом запуске сгенерирует дефолтный)
@@ -653,35 +724,42 @@ module Dn1sup
         upsert_profile_meta('id' => id.to_s, 'name' => name.to_s.empty? ? id.to_s : name.to_s,
                             'description' => description.to_s, 'protected' => false,
                             'created_at' => Time.now.to_i, 'last_launch' => nil)
+        created_meta = true
         progress_step('self')
         self_inject(id)
-        { 'ok' => true, 'id' => id.to_s, 'excluded' => excludes,
+        { 'ok' => true, 'id' => id.to_s, 'mode' => mode, 'excluded' => excludes,
           'message' => if clean
                          "Создан чистый профиль «#{name}»: менеджер и Save Settings, настройки интерфейса по умолчанию (#{extensions_count(id)} расширений). Профиль сохранён."
+                       elsif mode == 'empty'
+                         "Создан пустой профиль «#{name}»: только менеджер профилей, настройки интерфейса от «#{source}». Профиль сохранён."
                        else
-                         "Профиль «#{name}» создан из «#{source}»: #{extensions_count(id)} расширений" +
-                           (excludes.empty? ? '' : ", отфильтровано #{excludes.size}") + '. Профиль сохранён.'
+                         "Профиль «#{name}» создан на основе «#{source}»: #{extensions_count(id)} расширений. Профиль сохранён."
                        end }
       rescue StandardError, ScriptError
-        rollback_profile_creation!(id)
+        rollback_profile_creation!(id, store: created_store, meta: created_meta)
         raise
       ensure
         progress_finish
       end
     end
 
-    # Откат неудачного создания: хранилище на диске появилось только что
-    # (перед копированием его существование проверено), мету снимаем, если
-    # успели записать. Удаляет только то, что создала сама операция.
-    def rollback_profile_creation!(id)
+    # Откат неудачного создания: удаляет только то, что создала сама
+    # операция (флаги store/meta). Проверки до копирования (дубль id,
+    # плохой режим, нет источника) ничего не создают — трогать существующие
+    # данные запрещено.
+    def rollback_profile_creation!(id, store: true, meta: true)
       id = id.to_s
-      prefs_store = profile_store_prefs(id)
-      FileUtils.rm_rf(prefs_store) if File.directory?(prefs_store)
-      FileUtils.rm_rf(profile_store_root(id)) if File.directory?(profile_store_root(id))
-      data = load_profiles
-      if data['profiles'].any? { |p| p['id'].to_s == id }
-        data['profiles'].reject! { |p| p['id'].to_s == id }
-        save_profiles(data)
+      if store
+        prefs_store = profile_store_prefs(id)
+        FileUtils.rm_rf(prefs_store) if File.directory?(prefs_store)
+        FileUtils.rm_rf(profile_store_root(id)) if File.directory?(profile_store_root(id))
+      end
+      if meta
+        data = load_profiles
+        if data['profiles'].any? { |p| p['id'].to_s == id }
+          data['profiles'].reject! { |p| p['id'].to_s == id }
+          save_profiles(data)
+        end
       end
     rescue StandardError
       nil
@@ -856,60 +934,30 @@ module Dn1sup
 
     # ---- первичная инициализация ----------------------------------------------------------------------------------
 
-    PRESET_DEV = {
-      'id' => 'dev', 'name' => 'Разработка',
-      'description' => 'Разработка расширений DN1Sup: только dn1sup_* и MCP-мост',
-      'include' => ['dn1sup_*'], 'exclude' => []
-    }.freeze
-    PRESET_DRAFTING = {
-      'id' => 'drafting', 'name' => 'Черчение',
-      'description' => 'Проектная работа: рабочий набор сторонних расширений, без dn1sup_*',
-      'include' => [], 'exclude' => ['dn1sup_*', 'dn1c_*']
-    }.freeze
-
     def main_meta
       { 'id' => MAIN_ID, 'name' => 'Основной',
         'description' => 'Все расширения и настройки на момент разделения профилей',
         'protected' => true, 'created_at' => Time.now.to_i, 'last_launch' => nil }
     end
 
-    def prepare_migration(create_ids: [])
+    def prepare_migration
       raise 'Профили уже инициализированы' if initialized?
 
-      year = su_year
-      raise 'Не удалось определить версию SketchUp (год)' unless year.match?(/\A\d{4}\z/)
+      year = validate_su_year!
       raise "Каталог Plugins не найден: #{real_plugins_dir}" unless File.directory?(real_plugins_dir)
 
-      create_ids = Array(create_ids).map(&:to_s) & [PRESET_DEV['id'], PRESET_DRAFTING['id']]
-
       meta = { 'store_version' => STORE_VERSION, 'profiles' => [main_meta] }
-      create_ids.each do |cid|
-        preset = cid == PRESET_DEV['id'] ? PRESET_DEV : PRESET_DRAFTING
-        meta['profiles'] << { 'id' => preset['id'], 'name' => preset['name'],
-                              'description' => preset['description'], 'protected' => false,
-                              'created_at' => Time.now.to_i, 'last_launch' => nil }
-      end
       save_profiles(meta)
 
       main_store = profile_store_root(MAIN_ID)
       raise "Хранилище «Основного» уже существует: #{main_store}" if File.directory?(main_store)
-
-      create_specs = create_ids.map do |cid|
-        preset = cid == PRESET_DEV['id'] ? PRESET_DEV : PRESET_DRAFTING
-        {
-          'id' => preset['id'], 'name' => preset['name'],
-          'source' => profile_store_plugins(MAIN_ID),
-          'target' => profile_store_plugins(preset['id']),
-          'exclude_names' => plan_plugins_excludes_for_dir(real_plugins_dir, preset['include'], preset['exclude'])
-        }
-      end
 
       job = common_job_fields.merge(
         'kind' => 'migrate',
         'target_profile' => MAIN_ID,
         'store_main_plugins' => profile_store_plugins(MAIN_ID),
         'store_main_prefs' => profile_store_prefs(MAIN_ID),
-        'create_profiles' => create_specs
+        'create_profiles' => []
       )
       launch_helper(job)
       { 'ok' => true, 'quitting' => true,

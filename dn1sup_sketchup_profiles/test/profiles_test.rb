@@ -99,7 +99,7 @@ module Dn1sup::SketchupProfiles::Test
       end
       Core.define_singleton_method(:current_pid) { 0 }
 
-      res = Core.prepare_migration(create_ids: %w[dev drafting])
+      res = Core.prepare_migration
       assert_equal(true, res['ok'], res.inspect)
       assert(!cmdlines.empty? && cmdlines.first.include?('powershell.exe'), cmdlines.inspect)
       assert(File.file?(Core.helper_staged_path), 'хелпер не застейджен')
@@ -109,17 +109,20 @@ module Dn1sup::SketchupProfiles::Test
       assert_equal(true, Core.initialized?)
       assert_equal('main', Core.detect_active_profile)
 
-      dev_store = Core.profile_store_plugins('dev')
-      assert(Dir.children(dev_store).all? { |n| n.start_with?('dn1sup_') }, Dir.children(dev_store).inspect)
-      assert(File.file?(File.join(dev_store, 'dn1sup_sketchup_profiles.rb')), 'менеджер не инъектирован')
-      assert(File.file?(File.join(dev_store, 'dn1sup_sketchup_profiles', 'main.rb')), 'папка менеджера пуста')
+      main_store = Core.profile_store_plugins('main')
+      assert(File.file?(File.join(main_store, 'dn1sup_sketchup_profiles.rb')), 'менеджер не инъектирован')
 
-      # переключение на drafting
-      res = Core.switch_profile('drafting')
+      # новый профиль — клон источника
+      res = Core.create_profile(id: 'second', name: 'Второй', source_id: 'main', mode: 'clone')
+      assert_equal(true, res['ok'], res.inspect)
+      assert(File.file?(File.join(Core.profile_store_plugins('second'), 'dn1sup_sketchup_profiles.rb')))
+
+      # переключение на второй
+      res = Core.switch_profile('second')
       assert_equal(true, res['ok'], res.inspect)
       code2 = run_helper_sync!
       assert_equal(0, code2, "helper switch exit=#{code2}")
-      assert_equal('drafting', Core.detect_active_profile)
+      assert_equal('second', Core.detect_active_profile)
 
       result = Core.load_json(File.join(Core.store_root, 'pending_job.result.json'), {})
       assert_equal(true, result['ok'], result.inspect)
@@ -136,7 +139,7 @@ module Dn1sup::SketchupProfiles::Test
       Core.define_singleton_method(:launch_helper_process) { |_cmdline| true }
       Core.define_singleton_method(:current_pid) { 0 }
       begin
-        Core.prepare_migration(create_ids: [])
+        Core.prepare_migration
         run_helper_sync!
 
         exts = Core.list_extensions('main')

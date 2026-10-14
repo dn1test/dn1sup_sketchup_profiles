@@ -24,20 +24,14 @@ const selectedProfile = computed(() =>
 
 // -- экран инициализации ----------------------------------------------------------
 
-const createDev = ref(true)
-const createDrafting = ref(true)
-
 function onBeginMigration() {
-  const ids = []
-  if (createDev.value) ids.push('dev')
-  if (createDrafting.value) ids.push('drafting')
-  beginMigration(ids)
+  beginMigration()
 }
 
 // -- форма нового/редактируемого профиля --------------------------------------------
 
 const showForm = ref(false)
-const form = ref({ id: '', name: '', description: '', source: '', mode: 'empty', editing: null })
+const form = ref({ id: '', name: '', description: '', source: '', mode: 'clean', editing: null })
 const idTouched = ref(false)
 const idValidNow = () => isValidId(form.value.id.trim().toLowerCase())
 
@@ -47,7 +41,7 @@ function openCreateForm(cloneFrom = null) {
     name: cloneFrom ? cloneFrom.name + ' (копия)' : '',
     description: cloneFrom ? cloneFrom.description : '',
     source: cloneFrom ? cloneFrom.id : (data.value.active_profile || 'main'),
-    mode: cloneFrom ? 'clone' : 'empty',
+    mode: cloneFrom ? 'clone' : 'clean',
     editing: null
   }
   idTouched.value = false
@@ -94,23 +88,15 @@ function submitForm() {
     // автосгенерированный не должен молча перезаписать существующий профиль
     id = uniqueId(id, profiles.value.map((p) => p.id))
   }
-  // clean — «чистый профиль»: только менеджер и Save Settings, интерфейс с нуля;
-  // empty — только менеджер, интерфейс наследуется от источника
-  const filters = form.value.mode === 'dn1sup'
-    ? { include: ['dn1sup_*'], exclude: [] }
-    : form.value.mode === 'no_dn1sup'
-      ? { include: [], exclude: ['dn1sup_*', 'dn1c_*'] }
-      : form.value.mode === 'clean'
-        ? { include: ['dn1sup_sketchup_profiles', 'dn1sup_save_settings'], exclude: [], clean: true }
-        : form.value.mode === 'empty'
-          ? { include: ['dn1sup_sketchup_profiles'], exclude: [] }
-          : { include: [], exclude: [] }
+  // Режимы: clone — всё как в источнике; empty — только менеджер, интерфейс
+  // от источника; clean — менеджер и Save Settings, интерфейс с нуля.
+  const mode = ['clone', 'empty', 'clean'].includes(form.value.mode) ? form.value.mode : 'clone'
   createProfile({
     id,
     name: form.value.name.trim() || id,
     description: form.value.description.trim(),
     source: form.value.source,
-    ...filters
+    mode
   })
   showForm.value = false
 }
@@ -213,25 +199,10 @@ function backToProfiles() {
             ними (SketchUp перезапускается автоматически).
           </p>
 
-          <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-4 flex flex-col gap-2.5 text-sm">
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" v-model="createDev" class="mt-0.5 accent-brand-500" />
-              <span>
-                <b>Разработка</b> — сразу создать профиль с расширениями
-                <span class="sp-id-badge">dn1sup_*</span> и MCP-мостом
-              </span>
-            </label>
-            <label class="flex items-start gap-2.5 cursor-pointer">
-              <input type="checkbox" v-model="createDrafting" class="mt-0.5 accent-brand-500" />
-              <span>
-                <b>Черчение</b> — сразу создать профиль для проектной работы:
-                рабочий набор сторонних расширений, без <span class="sp-id-badge">dn1sup_*</span>
-              </span>
-            </label>
-            <p class="text-[12px] text-slate-400">
-              Оба профиля наследуют настройки интерфейса «Основного»; создать их
-              можно и позже кнопкой «Новый профиль».
-            </p>
+          <div class="rounded-xl border border-slate-200 dark:border-slate-800 p-4 text-sm text-slate-600 dark:text-slate-300">
+            Текущий набор расширений и настроек станет профилем <b>«Основной»</b>.
+            Другие профили создаются позже кнопкой «Новый профиль»: чистые
+            или на основе существующего.
           </div>
 
           <div class="text-[12px] text-slate-400 flex items-start gap-1.5">
@@ -260,7 +231,7 @@ function backToProfiles() {
                 @click="openCreateForm()">
           <UserPlus class="w-6 h-6" />
           <span class="text-sm font-medium">Новый профиль</span>
-          <span class="text-[11px]">с нуля, клон или с фильтром расширений</span>
+          <span class="text-[11px]">чистый, пустой или на основе другого</span>
         </button>
       </div>
 
@@ -345,15 +316,9 @@ function backToProfiles() {
             </select>
           </label>
           <div class="flex flex-col gap-1">
-            <span class="sp-label">какие расширения копировать из источника</span>
+            <span class="sp-label">какой профиль создать</span>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="clone" v-model="form.mode" class="accent-brand-500" /> все, как в источнике
-            </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="dn1sup" v-model="form.mode" class="accent-brand-500" /> только dn1sup_*
-            </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="no_dn1sup" v-model="form.mode" class="accent-brand-500" /> всё, кроме dn1sup_*/dn1c_*
+              <input type="radio" value="clone" v-model="form.mode" class="accent-brand-500" /> на основе источника: всё, как в источнике
             </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
               <input type="radio" value="empty" v-model="form.mode" class="accent-brand-500" /> пустой: только менеджер профилей
@@ -378,7 +343,7 @@ function backToProfiles() {
         <div class="flex justify-end gap-2 pt-1">
           <button class="sp-btn-ghost" @click="showForm = false">Отмена</button>
           <button class="sp-btn-primary" :disabled="!canSubmit()" @click="submitForm">
-            {{ form.editing ? 'Сохранить' : 'Создать (копирование)' }}
+            {{ form.editing ? 'Сохранить' : 'Создать' }}
           </button>
         </div>
       </div>

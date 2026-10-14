@@ -15,22 +15,12 @@ let mockProfiles = [
     last_launch: 1760200000
   },
   {
-    id: 'dev',
-    name: 'Разработка',
-    description: 'Разработка расширений DN1Sup: только dn1sup_* (прод + dev) и MCP-мост',
+    id: 'training',
+    name: 'Обучение',
+    description: 'Чистый профиль для обучения',
     is_active: false,
     protected: false,
-    extensions_count: 12,
-    created_at: 1760000000,
-    last_launch: null
-  },
-  {
-    id: 'drafting',
-    name: 'Черчение',
-    description: 'Проектная работа: рабочий набор сторонних расширений, без dn1sup_*/dev',
-    is_active: false,
-    protected: false,
-    extensions_count: 33,
+    extensions_count: 2,
     created_at: 1760000000,
     last_launch: null
   }
@@ -46,7 +36,7 @@ const mockExtensions = [
 
 let mockBackups = [
   { file: 'main-20261010-120000.zip', profile: 'main', size: 41234567, mtime: 1760100000 },
-  { file: 'dev-20261009-090000.zip', profile: 'dev', size: 8123456, mtime: 1760010000 }
+  { file: 'training-20261009-090000.zip', profile: 'training', size: 8123456, mtime: 1760010000 }
 ]
 
 export function mockPayload() {
@@ -91,7 +81,8 @@ export function applyMockAction(name, params = {}) {
   }
   if (name === 'create_profile') {
     delay(() => {
-      const count = Array.isArray(params.include) ? params.include.length : 0
+      const mode = params.mode || 'clone'
+      const count = mode === 'clean' ? 2 : mode === 'empty' ? 1 : 48
       mockProfiles.push({
         id: params.id, name: params.name || params.id, description: params.description || '',
         is_active: false, protected: false, extensions_count: count,
@@ -99,9 +90,11 @@ export function applyMockAction(name, params = {}) {
       })
       window.pushResult('action_result', {
         id: params.id, action: name, ok: true,
-        message: params.clean
+        message: mode === 'clean'
           ? `Создан чистый профиль «${params.name}» (mock).`
-          : `Профиль «${params.name}» создан (mock).`
+          : mode === 'empty'
+            ? `Создан пустой профиль «${params.name}» (mock).`
+            : `Профиль «${params.name}» создан на основе источника (mock).`
       })
       window.pushState(mockPayload())
     }, 900)
