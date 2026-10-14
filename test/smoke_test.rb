@@ -864,6 +864,11 @@ dlg.scripts.clear
 Main.dispatch(dlg, 'sync_self', '')
 assert 'dispatch sync_self → ok', dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":true') }
 
+dlg.scripts.clear
+Main.dispatch(dlg, 'check_update', '')
+assert 'dispatch check_update (рабочая копия) → тост в диалог, а не тишина',
+       dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('рабочая копия') }
+
 # ---- task-оверлей / confirm-поток / get_progress -----------------------------------
 
 dlg.scripts.clear

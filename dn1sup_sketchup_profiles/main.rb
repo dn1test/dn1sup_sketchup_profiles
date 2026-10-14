@@ -356,9 +356,18 @@ module Dn1sup
       when 'sync_self'
         run_async(dlg, 'sync_self') { Core.sync_self_all }
       when 'check_update'
-        # Кнопка «круг со стрелками» в шапке: сначала локальная папка
+        # Кнопка-облако в шапке: сначала локальная папка
         # (DEV_DIR из MANIFEST), потом GitHub — ставится свежайшее.
-        Dn1sup::Updater.check_local_first!(MANIFEST.merge(force: true, async: true))
+        if Dn1sup::Updater.dev_source?
+          # Рабочая копия обновляется из папки репозитория, а не из релизов:
+          # апдейтер в этом случае молча отказывается — отвечаем в диалог
+          # тостом, иначе кнопка выглядит мёртвой.
+          notify_result(dlg, 'check_update',
+                        { 'ok' => true,
+                          'message' => 'Проверка отключена: запущена рабочая копия — обновления приходят из папки репозитория.' })
+        else
+          Dn1sup::Updater.check_local_first!(MANIFEST.merge(force: true, async: true))
+        end
       when 'log_js_error'
         log_js_error(param)
       else
