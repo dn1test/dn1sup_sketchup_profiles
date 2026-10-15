@@ -378,13 +378,23 @@ try {
     }
   }
 
-  # 9. Перезапуск SketchUp.
-  if ($job.relaunch -and $job.su_exe -and (Test-Path -LiteralPath ([string]$job.su_exe) -PathType Leaf)) {
-    Start-Process -FilePath ([string]$job.su_exe)
-    Write-Log 'sketchup запущен'
-    [void]$phases.Add('relaunched')
+  # 9. Перезапуск SketchUp — ТОЛЬКО рестарт, новых копий не создаём:
+  # запуск разрешён, если job пришёл из живого SketchUp (wait_pid > 0) И
+  # прямо сейчас нет ни одного процесса SketchUp (старый уже вышел, другого
+  # нет). Иначе — пропуск с записью в лог: плодить копии запрещено.
+  $canRestart = [bool]$job.relaunch -and ([int]$job.wait_pid -gt 0) -and
+    ([string]$job.su_exe) -and (Test-Path -LiteralPath ([string]$job.su_exe) -PathType Leaf)
+  if ($canRestart) {
+    $running = @(Get-Process -Name SketchUp -ErrorAction SilentlyContinue)
+    if ($running.Count -gt 0) {
+      Write-Log ("перезапуск ПРОПУЩЕН: обнаружен запущенный SketchUp (pid {0}) — новая копия не запускается" -f $running[0].Id)
+    } else {
+      Start-Process -FilePath ([string]$job.su_exe)
+      Write-Log 'sketchup перезапущен'
+      [void]$phases.Add('relaunched')
+    }
   } else {
-    Write-Log 'перезапуск не требуется/невозможен'
+    Write-Log 'перезапуск не требуется/невозможен (разрешён только рестарт из живого SketchUp при отсутствии других копий)'
   }
 
   [void]$phases.Add('done')

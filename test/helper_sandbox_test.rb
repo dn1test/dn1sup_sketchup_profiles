@@ -54,7 +54,7 @@ end
 begin
   # --- исходные данные --------------------------------------------------------
   FileUtils.mkdir_p(RealPlugins)
-  %w[dn1sup_ext_manager dn1sup_ext_manager_dev dn1sup_sketchup_profiles
+  %w[dn1sup_ext_manager dn1sup_sketchup_profiles
      curic_select ladb_opencutlist].each do |id|
     File.write(File.join(RealPlugins, "#{id}.rb"), "# #{id}\nextension.version = '1.0.0'\n")
     FileUtils.mkdir_p(File.join(RealPlugins, id))
@@ -215,6 +215,25 @@ begin
   result3 = JSON.parse(File.read(File.join(Store, 'pending_job.result.json'), encoding: 'UTF-8'))
   assert 'ошибка фиксируется в result.json', code3 != 0 && result3['ok'] == false && !result3['error'].to_s.empty?,
          "exit=#{code3} result=#{result3.inspect[0, 200]}"
+
+  # --- защита от размножения SketchUp: relaunch вне живого рестарта запрещён --
+  # job просит перезапуск (relaunch=true, su_exe существует), но пришёл не из
+  # живого SketchUp (wait_pid=0): хелпер обязан пропустить Start-Process.
+  dev_plugins = File.join(Store, 'profiles', 'dev', 'Plugins')
+  guard_job = job_switch.merge(
+    'kind' => 'switch', 'from_profile' => 'dev', 'target_profile' => 'dev',
+    'wait_pid' => 0, 'relaunch' => true, 'su_exe' => ENV['COMSPEC'].to_s,
+    'store_from_plugins' => dev_plugins,
+    'store_to_plugins' => dev_plugins,
+    'store_to_prefs' => File.join(Store, 'profiles', 'dev', 'Prefs')
+  )
+  raise 'COMSPEC не найден' unless File.file?(guard_job['su_exe'])
+  File.write(job_path, JSON.generate(guard_job))
+  _outg, codeg = run_helper!(job_path)
+  resultg = JSON.parse(File.read(File.join(Store, 'pending_job.result.json'), encoding: 'UTF-8'))
+  assert 'гард: перезапуск без живого SketchUp пропущен (нет фазы relaunched)',
+         codeg.zero? && resultg['ok'] == true && !Array(resultg['phases']).include?('relaunched'),
+         "exit=#{codeg} result=#{resultg.inspect[0, 200]}"
   # --- Win.zip_extract: успех по exit-коду tar, а не по наличию папки -------------
   require_relative File.join(REPO, 'dn1sup_sketchup_profiles', 'win_helpers')
   w = Dn1sup::SketchupProfiles::Win

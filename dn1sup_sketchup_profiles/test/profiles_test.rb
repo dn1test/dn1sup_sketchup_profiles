@@ -2,9 +2,11 @@
 # =============================================================================
 # dn1sup_sketchup_profiles/test/profiles_test.rb — живые тесты в SketchUp (v2).
 #
-# Все операции — ТОЛЬКО в песочнице (tmp): подменяются пути ядра, реальный
-# хелпер запускается с job-файлом песочницы (wait_pid=0, strict_solo=false,
-# relaunch=false). Живые данные пользователя не трогаются.
+# Все операции — ТОЛЬКО в песочнице (tmp): подменяются пути ядра, ручной
+# прогон хелпера идёт на обезвреженном job-файле песочницы (run_helper_sync!
+# принудительно ставит wait_pid=0, strict_solo=false, relaunch=false,
+# su_exe=''). Живые данные пользователя не трогаются, новые копии SketchUp
+# не поднимаются.
 # =============================================================================
 
 require_relative 'test_helper'
@@ -56,15 +58,27 @@ module Dn1sup::SketchupProfiles::Test
     end
   end
 
+  # Ручной прогон хелпера на job-файле песочницы. Перед запуском job
+  # ОБЕЗВРЕЖИВАЕТСЯ (relaunch=false, su_exe='', wait_pid=0): хелперу запрещено
+  # поднимать новые копии SketchUp — разрешён только рестарт из живого
+  # приложения, а тесты работают без рестарта.
   def self.run_helper_sync!
-    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "#{Core.helper_staged_path}" -JobPath "#{Core.pending_job_path}" 2>&1`
+    require 'json'
+    job_path = Core.pending_job_path
+    if File.file?(job_path)
+      job = JSON.parse(File.read(job_path, encoding: 'UTF-8'))
+      job['relaunch'] = false
+      job['su_exe'] = ''
+      job['wait_pid'] = 0
+      File.write(job_path, JSON.generate(job))
+    end
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File "#{Core.helper_staged_path}" -JobPath "#{job_path}" 2>&1`
     $?.exitstatus.to_i
   end
 
   test 'версия расширения согласована' do
     assert(Core::VERSION =~ /\A\d+\.\d+\.\d+\z/, "VERSION=#{Core::VERSION}")
-    # Регистратор — один (`dn1sup_sketchup_profiles.rb` рядом с папкой плагина),
-    # _dev-двойников больше нет.
+    # Регистратор — один (`dn1sup_sketchup_profiles.rb` рядом с папкой плагина).
     parent_name = File.basename(File.dirname(Core::PLUGIN_DIR))
     candidates = [
       File.join(Core::PLUGIN_DIR, '..', '..', "#{parent_name}.rb"),
