@@ -14,9 +14,12 @@
 #    в родительском каталоге — см. fs_entry?/junction?.
 #  * скрытый запуск (без моргания консоли) — WScript.Shell.Run(cmd, 0):
 #    GUI-подсистема wscript, консольному ребёнку прячется окно.
+#    spawn/system/backticks запрещены — моргают консолью. Синхронный вариант
+#    hidden_wait_exit возвращает exit-код, hidden_capture_out — [вывод, код].
 # =============================================================================
 
 require 'fileutils'
+require 'tmpdir'
 
 module Dn1sup
   module SketchupProfiles
@@ -74,19 +77,25 @@ module Dn1sup
         return false if fs_entry?(point.to_s)
         return false unless File.directory?(target.to_s)
 
-        system("cmd.exe /c mklink /J \"#{to_win(point)}\" \"#{to_win(target)}\"")
+        hidden_wait_exit("cmd.exe /c mklink /J \"#{to_win(point)}\" \"#{to_win(target)}\"")
         File.directory?(point.to_s)
       rescue StandardError
         false
       end
 
-      # Удаляет ТОЛЬКО junction (точку связи): [IO.Directory]::Delete(path,false)
-      # через cmd rmdir не заходит в цель. Вызов безопасен только после
-      # junction? — реальный каталог не трогаем никогда.
+      # Удаляет ТОЛЬКО junction (точку связи): Dir.rmdir снимает reparse-point
+      # без захода в цель (проверено probe_win.rb) — внешнего процесса вообще
+      # нет, окно консоли не моргает. cmd rmdir — только фолбэк, скрыто.
       def remove_junction(point)
         return false unless junction?(point)
 
-        system("cmd.exe /c rmdir \"#{to_win(point)}\"")
+        begin
+          Dir.rmdir(point.to_s)
+          return !File.exist?(point.to_s)
+        rescue SystemCallError, StandardError
+          # ниже — скрытый cmd-фолбэк
+        end
+        hidden_wait_exit("cmd.exe /c rmdir \"#{to_win(point)}\"")
         !File.exist?(point.to_s)
       rescue StandardError
         false
@@ -122,9 +131,10 @@ module Dn1sup
         args += ['/XD', *ex_dirs.map { |d| to_win(d) }] unless ex_dirs.empty?
         args += ['/XF', *ex_files.map { |f| to_win(f) }] unless ex_files.empty?
 
-        pid = spawn(*args)
-        Process.wait(pid)
-        $?.exitstatus.to_i < 8
+        # spawn/system моргают консольным окном — запускаем скрыто через
+        # WScript.Shell.Run(..., 0, true), код выхода возвращает сам Run.
+        exitcode = hidden_wait_exit(cmdline_join(args))
+        !exitcode.nil? && exitcode.to_i < 8
       rescue StandardError
         false
       end
@@ -140,8 +150,9 @@ module Dn1sup
         names = Array(inner_names).map { |n| to_win(n) }
         return false if names.empty?
 
-        system("tar.exe -a -cf \"#{to_win(out_zip)}\" -C \"#{to_win(chdir)}\" #{names.map { |n| "\"#{n}\"" }.join(' ')}")
-        File.file?(out_zip.to_s)
+        # system() моргает консолью — скрытый запуск, успех по exit-коду.
+        exitcode = hidden_wait_exit("tar.exe -a -cf \"#{to_win(out_zip)}\" -C \"#{to_win(chdir)}\" #{names.map { |n| "\"#{n}\"" }.join(' ')}")
+        exitcode.to_i.zero? && File.file?(out_zip.to_s)
       rescue StandardError
         false
       end
@@ -153,13 +164,54 @@ module Dn1sup
         # поэтому только наличие папки маскировало частичную распаковку
         # битого архива.
         FileUtils.mkdir_p(dest.to_s)
-        ok = system("tar.exe -xf \"#{to_win(zip_path)}\" -C \"#{to_win(dest)}\"")
-        File.directory?(dest.to_s) && ok == true && $?.exitstatus.to_i.zero?
+        exitcode = hidden_wait_exit("tar.exe -xf \"#{to_win(zip_path)}\" -C \"#{to_win(dest)}\"")
+        File.directory?(dest.to_s) && exitcode.to_i.zero?
       rescue StandardError
         false
       end
 
-      # -- процессы -------------------------------------------------------------------
+      # -- процессы (всё скрыто, без моргания консоли) -------------------------------
+
+      # Сборка командной строки из массива: каждый аргумент с пробелами/
+      # кавычками — в двойных кавычках (для WScript.Shell.Run одной строкой).
+      def cmdline_join(args)
+        Array(args).map do |a|
+          s = a.to_s
+          s.match?(/[\s"]/) ? "\"#{s.gsub('"', '""')}\"" : s
+        end.join(' ')
+      end
+
+      # Скрытый синхронный запуск (без окна консоли): WScript.Shell.Run(cmd, 0).
+      # Возвращает exit-код процесса либо nil при неудаче запуска.
+      def hidden_wait_exit(cmdline)
+        return nil unless windows?
+
+        require 'win32ole'
+        shell = WIN32OLE.new('WScript.Shell')
+        shell.Run(cmdline.to_s, 0, true)
+      rescue StandardError
+        nil
+      end
+
+      # Скрытый запуск с перехватом stdout+stderr через временный файл
+      # (WScript.Run вывод не возвращает; перенаправляет cmd.exe).
+      # Возвращает [текст, exit-код].
+      def hidden_capture_out(cmdline)
+        return ['', nil] unless windows?
+
+        Dir.mktmpdir('sp_cap') do |tmp|
+          out_file = File.join(tmp, 'out.txt')
+          wrapped = "cmd.exe /c #{cmdline} > \"#{to_win(out_file)}\" 2>&1"
+          exitcode = hidden_wait_exit(wrapped)
+          # Вывод консольных программ — в OEM-кодировке (CP866 на RU-Windows):
+          # читаем как бинарный и чистим до валидного UTF-8, иначе regex
+          # падает с ArgumentError (invalid byte sequence).
+          text = File.file?(out_file) ? File.binread(out_file).force_encoding('UTF-8').scrub : ''
+          return [text, exitcode]
+        end
+      rescue StandardError
+        ['', nil]
+      end
 
       # Скрытый запуск командной строки (без окна консоли): WScript.Shell.Run.
       # Требует win32ole (есть в SketchUp Ruby). fire-and-forget — без PID,
@@ -176,11 +228,16 @@ module Dn1sup
       end
 
       # Жив ли процесс с данным PID (tasklist, только Windows).
+      # Backticks здесь запрещены — моргают консолью; вывод через temp-файл.
+      # Проверка локаль-независимая: в строке процесса есть "<имя>.exe <pid>",
+      # при отсутствии — строка INFO/ИНФОРМАЦИЯ. Заголовок tasklist локализован,
+      # поэтому по нему не матчим.
       def process_alive?(pid)
         return false unless windows? && pid.to_i.positive?
 
-        out = `tasklist /FI "PID eq #{pid.to_i}" 2>nul`.to_s
-        out.match?(/\A\s*Image Name/) && out.include?(pid.to_i.to_s)
+        out, _code = hidden_capture_out("tasklist /FI \"PID eq #{pid.to_i}\"")
+        out = out.to_s
+        out.match?(/\.exe\s+#{pid.to_i}\b/i)
       rescue StandardError
         false
       end
