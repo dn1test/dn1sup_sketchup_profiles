@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.4.5'
+    VERSION       = '0.4.6'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
@@ -502,7 +502,10 @@ module Dn1sup
         FileUtils.cp(src, dst)
       elsif File.directory?(src)
         remove_real_entry(dst)
-        Win.create_junction(dst, src)
+        # create_junction молча возвращает false при неудаче (mklink не
+        # сработал) — дальше шёл бы полуклон: .rb без папки и модальные
+        # ошибки при старте. Роняем операцию сразу с понятной причиной.
+        raise "Не удалось подключить папку «#{name}» (junction #{dst} -> #{src})" unless Win.create_junction(dst, src)
       end
       true
     end

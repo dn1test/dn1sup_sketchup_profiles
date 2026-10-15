@@ -950,6 +950,22 @@ Dir.mktmpdir do |tmp|
   end
 end
 
+# mirror_item_to_real: сбой junction — исключение, а не молчаливый полуклон
+fake_dir = File.join(Core.profile_store_plugins('main'), 'dn1sup_broken_fake')
+FileUtils.mkdir_p(fake_dir)
+saved_junction = Core::Win.method(:create_junction)
+Core::Win.define_singleton_method(:create_junction) { |*| false }
+begin
+  Core.mirror_item_to_real('main', 'dn1sup_broken_fake')
+  assert 'mirror_item_to_real: сбой junction → исключение', false
+rescue RuntimeError => e
+  assert 'mirror_item_to_real: сбой junction → исключение',
+         e.message.include?('dn1sup_broken_fake')
+ensure
+  Core::Win.define_singleton_method(:create_junction, saved_junction)
+  FileUtils.rm_rf(fake_dir)
+end
+
 assert 'прогресс сбрасывается после операций', Core.progress_snapshot.nil?
 
 # регистратор
