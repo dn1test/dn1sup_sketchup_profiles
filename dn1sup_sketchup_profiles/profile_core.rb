@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.4.3'
+    VERSION       = '0.4.4'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
@@ -403,6 +403,29 @@ module Dn1sup
       raise 'Профиль сейчас активен — операция недоступна' if detect_active_profile == id.to_s
     end
 
+    # Целостность клона хранилища после robocopy: все ожидаемые элементы
+    # (источник минус excludes) на месте; у каждого dn1sup_*.rb, чья папка
+    # была в источнике, папка есть и в клоне — иначе лоадер упадёт с LoadError
+    # (require version/main) при следующем запуске профиля.
+    def verify_profile_store!(src_plugins, dst_plugins, excludes)
+      expected = dir_children(src_plugins) - Array(excludes).map(&:to_s)
+      actual = dir_children(dst_plugins)
+      missing = expected - actual
+      unless missing.empty?
+        raise "Клон профиля неполный: нет #{missing.size} эл.: #{missing.first(5).join(', ')}"
+      end
+
+      broken = actual.select do |name|
+        next false unless name =~ /\Adn1sup_.+\.rb\z/i
+
+        base = name.sub(/\.rb\z/i, '')
+        File.directory?(File.join(src_plugins, base)) && !File.directory?(File.join(dst_plugins, base))
+      end
+      raise "Клон профиля битый: нет папки для #{broken.join(', ')}" unless broken.empty?
+
+      true
+    end
+
     # ---- список расширений профиля -----------------------------------------------------------------
 
     def list_extensions(profile_id)
@@ -708,6 +731,7 @@ module Dn1sup
         ok = Win.robocopy(src_plugins, dst_plugins, exclude_names: excludes)
         raise 'Копирование профиля не удалось (robocopy)' unless ok
         created_store = true
+        verify_profile_store!(src_plugins, dst_plugins, excludes)
 
         # настройки интерфейса наследуются от источника (кроме clean-профиля:
         # пустой Prefs → SketchUp при первом запуске сгенерирует дефолтный)

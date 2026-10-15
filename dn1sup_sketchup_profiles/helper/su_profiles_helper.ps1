@@ -301,6 +301,19 @@ try {
     foreach ($i in $items) { Mirror-Item $toStore $i.Name }
     Write-Log ("switch: подключено из {0}: {1} эл." -f $toStore, $items.Count)
 
+    # Проверка сиротских лоадеров: .rb без папки упадёт с LoadError
+    # (require version/main) при старте SketchUp — только лог, без прерывания.
+    foreach ($rb in @(Get-ChildItem -LiteralPath $realPlugins -Force -File | Where-Object { $_.Name -like 'dn1sup_*.rb' })) {
+      $base = [System.IO.Path]::GetFileNameWithoutExtension($rb.Name)
+      $storeDir = Join-Path $toStore $base
+      $realDir = Join-Path $realPlugins $base
+      if ((Test-Path -LiteralPath $storeDir -PathType Container) -and (-not (Test-Path -LiteralPath $realDir))) {
+        Write-Log ("switch: ВНИМАНИЕ: папка {0} есть в хранилище, но не подключилась в Plugins" -f $base)
+      } elseif ((-not (Test-Path -LiteralPath $storeDir)) -and (-not (Test-Path -LiteralPath $realDir))) {
+        Write-Log ("switch: ВНИМАНИЕ: {0} без папки (сиротский лоадер)" -f $rb.Name)
+      }
+    }
+
     # 6. Настройки интерфейса целевого профиля.
     $toPrefs = [string]$job.store_to_prefs
     if (Test-Path -LiteralPath $toPrefs -PathType Container) {

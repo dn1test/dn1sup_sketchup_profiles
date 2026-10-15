@@ -927,6 +927,29 @@ Core::Win.define_singleton_method(:robocopy, win_robocopy_backup)
 assert 'create_profile: сбой robocopy → хранилище не осталось',
        !File.directory?(Core.profile_store_root('rollback_test')) && Core.find_profile('rollback_test').nil?
 
+# verify_profile_store!: целый клон проходит, усечённый отклоняется
+require 'tmpdir'
+Dir.mktmpdir do |tmp|
+  vsrc = File.join(tmp, 'src')
+  vdst = File.join(tmp, 'dst')
+  FileUtils.mkdir_p(File.join(vsrc, 'dn1sup_export_3d'))
+  FileUtils.mkdir_p(File.join(vdst, 'dn1sup_export_3d'))
+  File.write(File.join(vsrc, 'dn1sup_export_3d.rb'), 'x')
+  File.write(File.join(vdst, 'dn1sup_export_3d.rb'), 'x')
+  File.write(File.join(vsrc, 'dn1sup_export_3d', 'version.rb'), 'x')
+  File.write(File.join(vdst, 'dn1sup_export_3d', 'version.rb'), 'x')
+  assert 'verify_profile_store!: целый клон проходит',
+         Core.verify_profile_store!(vsrc, vdst, []) == true
+  FileUtils.rm_rf(File.join(vdst, 'dn1sup_export_3d'))
+  begin
+    Core.verify_profile_store!(vsrc, vdst, [])
+    assert 'verify_profile_store!: битый клон (.rb без папки) отклоняется', false
+  rescue RuntimeError => e
+    assert 'verify_profile_store!: битый клон (.rb без папки) отклоняется',
+           e.message.include?('dn1sup_export_3d')
+  end
+end
+
 assert 'прогресс сбрасывается после операций', Core.progress_snapshot.nil?
 
 # регистратор
