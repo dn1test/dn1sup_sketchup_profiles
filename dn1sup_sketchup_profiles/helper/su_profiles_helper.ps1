@@ -298,8 +298,15 @@ try {
       throw "хранилище целевого профиля не найдено: $toStore"
     }
     $items = @(Get-ChildItem -LiteralPath $toStore -Force | Where-Object { -not $_.Name.StartsWith('.') })
-    foreach ($i in $items) { Mirror-Item $toStore $i.Name }
-    Write-Log ("switch: подключено из {0}: {1} эл." -f $toStore, $items.Count)
+    # Папки первыми: при обрыве останутся джанкшны без лоадеров (невидимо),
+    # а не лоадеры без папок (модальные ошибки «Failed to load file» при старте).
+    $items = @($items | Sort-Object { -not $_.PSIsContainer }, Name)
+    $mirrorFailed = @()
+    foreach ($i in $items) {
+      try { Mirror-Item $toStore $i.Name }
+      catch { $mirrorFailed += $i.Name; Write-Log ("switch: НЕ подключён {0}: {1}" -f $i.Name, $_.Exception.Message) }
+    }
+    Write-Log ("switch: подключено из {0}: {1} эл." -f $toStore, ($items.Count - $mirrorFailed.Count))
 
     # Проверка сиротских лоадеров: .rb без папки упадёт с LoadError
     # (require version/main) при старте SketchUp — только лог, без прерывания.
@@ -313,6 +320,7 @@ try {
         Write-Log ("switch: ВНИМАНИЕ: {0} без папки (сиротский лоадер)" -f $rb.Name)
       }
     }
+    if ($mirrorFailed.Count -gt 0) { throw ("зеркалирование не удалось для {0} эл.: {1}" -f $mirrorFailed.Count, ($mirrorFailed -join ', ')) }
 
     # 6. Настройки интерфейса целевого профиля.
     $toPrefs = [string]$job.store_to_prefs
