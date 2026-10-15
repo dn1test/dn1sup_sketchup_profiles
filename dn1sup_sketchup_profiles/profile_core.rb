@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.4.7'
+    VERSION       = '0.4.8'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
@@ -42,12 +42,10 @@ module Dn1sup
 
     PLUGIN_DIR = File.dirname(__FILE__).freeze
 
-    # Состав «Чистого профиля»: рабочие dn1sup-расширения, достаточные для
-    # переключения профилей (менеджер) и сохранения раскладки интерфейса
-    # (Save Settings). Всё остальное из источника не копируется, настройки
+    # Состав «Чистого профиля»: только менеджер профилей. Настройки
     # интерфейса (Prefs) не наследуются — SketchUp генерирует их заново.
     # Базовые имена; в фильтр превращаются вместе с парой «имя.rb».
-    CLEAN_KEEP = %w[dn1sup_sketchup_profiles dn1sup_save_settings].freeze
+    CLEAN_KEEP = %w[dn1sup_sketchup_profiles].freeze
 
     PROFILE_ID_RE = /\A[a-z][a-z0-9_]{0,31}\z/.freeze
     EXT_NAME_RE   = /\A[A-Za-z0-9_][A-Za-z0-9_.\-]*\z/.freeze
@@ -699,9 +697,9 @@ module Dn1sup
 
     # Режимы создания профиля:
     #   clone — всё как в источнике (расширения + настройки интерфейса);
-    #   empty — только менеджер профилей, настройки интерфейса от источника;
-    #   clean — только менеджер и Save Settings, настройки интерфейса с нуля.
-    CREATE_MODES = %w[clone empty clean].freeze
+    #   clean — только менеджер профилей, настройки интерфейса с нуля.
+    # («empty» оставлен как legacy-алиас clean: только менеджер.)
+    CREATE_MODES = %w[clone clean].freeze
 
     def create_profile(id:, name:, description: '', source_id: nil, mode: 'clone')
       progress_start('create_profile', id: id.to_s, phases: %w[check copy prefs meta self])
@@ -715,7 +713,8 @@ module Dn1sup
         raise "Хранилище профиля уже есть на диске: #{profile_store_root(id)}" if File.directory?(profile_store_root(id))
 
         mode = mode.to_s.empty? ? 'clone' : mode.to_s
-        raise "Неизвестный режим создания «#{mode}» (clone/empty/clean)" unless CREATE_MODES.include?(mode)
+        mode = 'clean' if mode == 'empty'
+        raise "Неизвестный режим создания «#{mode}» (clone/clean)" unless CREATE_MODES.include?(mode)
 
         source = source_id.to_s.empty? ? (detect_active_profile.empty? ? MAIN_ID : detect_active_profile) : source_id.to_s
         raise "Источник «#{source}» не найден" unless profile_exists?(source)
@@ -725,7 +724,6 @@ module Dn1sup
         clean = (mode == 'clean')
         include_patterns = case mode
                            when 'clean' then clean_keep_patterns
-                           when 'empty' then ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb']
                            else []
                            end
         excludes = plan_plugins_excludes_for_dir(src_plugins, include_patterns, [])
@@ -756,9 +754,7 @@ module Dn1sup
         self_inject(id)
         { 'ok' => true, 'id' => id.to_s, 'mode' => mode, 'excluded' => excludes,
           'message' => if clean
-                         "Создан чистый профиль «#{name}»: менеджер и Save Settings, настройки интерфейса по умолчанию (#{extensions_count(id)} расширений). Профиль сохранён."
-                       elsif mode == 'empty'
-                         "Создан пустой профиль «#{name}»: только менеджер профилей, настройки интерфейса от «#{source}». Профиль сохранён."
+                         "Создан чистый профиль «#{name}»: только менеджер профилей, настройки интерфейса по умолчанию (#{extensions_count(id)} расширений). Профиль сохранён."
                        else
                          "Профиль «#{name}» создан на основе «#{source}»: #{extensions_count(id)} расширений. Профиль сохранён."
                        end }

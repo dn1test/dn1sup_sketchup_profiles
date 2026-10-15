@@ -82,7 +82,7 @@ export function applyMockAction(name, params = {}) {
   if (name === 'create_profile') {
     delay(() => {
       const mode = params.mode || 'clone'
-      const count = mode === 'clean' ? 2 : mode === 'empty' ? 1 : 48
+      const count = mode === 'clean' ? 1 : 48
       mockProfiles.push({
         id: params.id, name: params.name || params.id, description: params.description || '',
         is_active: false, protected: false, extensions_count: count,
@@ -92,9 +92,7 @@ export function applyMockAction(name, params = {}) {
         id: params.id, action: name, ok: true,
         message: mode === 'clean'
           ? `Создан чистый профиль «${params.name}» (mock).`
-          : mode === 'empty'
-            ? `Создан пустой профиль «${params.name}» (mock).`
-            : `Профиль «${params.name}» создан на основе источника (mock).`
+          : `Профиль «${params.name}» создан на основе источника (mock).`
       })
       window.pushState(mockPayload())
     }, 900)

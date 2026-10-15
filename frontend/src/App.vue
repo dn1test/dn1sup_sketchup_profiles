@@ -88,9 +88,8 @@ function submitForm() {
     // автосгенерированный не должен молча перезаписать существующий профиль
     id = uniqueId(id, profiles.value.map((p) => p.id))
   }
-  // Режимы: clone — всё как в источнике; empty — только менеджер, интерфейс
-  // от источника; clean — менеджер и Save Settings, интерфейс с нуля.
-  const mode = ['clone', 'empty', 'clean'].includes(form.value.mode) ? form.value.mode : 'clone'
+  // Режимы: clone — всё как в источнике; clean — только менеджер, интерфейс с нуля.
+  const mode = ['clone', 'clean'].includes(form.value.mode) ? form.value.mode : 'clone'
   createProfile({
     id,
     name: form.value.name.trim() || id,
@@ -229,7 +228,7 @@ function backToProfiles() {
                 @click="openCreateForm()">
           <UserPlus class="w-6 h-6" />
           <span class="text-sm font-medium">Новый профиль</span>
-          <span class="text-[11px]">чистый, пустой или на основе другого</span>
+          <span class="text-[11px]">чистый или на основе другого</span>
         </button>
       </div>
 
@@ -319,10 +318,7 @@ function backToProfiles() {
               <input type="radio" value="clone" v-model="form.mode" class="accent-brand-500" /> на основе источника: всё, как в источнике
             </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="empty" v-model="form.mode" class="accent-brand-500" /> пустой: только менеджер профилей
-            </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="radio" value="clean" v-model="form.mode" class="accent-brand-500" /> чистый: менеджер и Save Settings, интерфейс с нуля
+              <input type="radio" value="clean" v-model="form.mode" class="accent-brand-500" /> чистый: только менеджер профилей, интерфейс с нуля
             </label>
           </div>
           <p class="text-[11px] text-slate-400">Менеджер профилей добавляется в профиль автоматически.</p>

@@ -421,7 +421,7 @@ assert 'Prefs main: оба файла настроек',
        File.file?(File.join(Core.profile_store_prefs('main'), 'PrivatePreferences.json'))
 
 # Клоны dev/drafting с фильтрами dn1sup_* удалены (0.4.0): дополнительные
-# профили создаются через create_profile(mode: clone/empty/clean) ниже.
+# профили создаются через create_profile(mode: clone/clean) ниже.
 
 # =============================================================================
 # 4. state_payload
@@ -561,19 +561,20 @@ end
 assert 'rename_profile', Core.update_profile_meta('training', 'Обучение 2', 'новое')['ok'] == true &&
                          Core.find_profile('training')['name'] == 'Обучение 2'
 
-# --- чистый профиль: только менеджер и Save Settings, без наследования Prefs ---
+# --- чистый профиль: только менеджер, без наследования Prefs ---
+# (в источнике лежит Save Settings — в чистый профиль он попасть не должен)
 File.write(File.join(main_store, 'dn1sup_save_settings.rb'), "# save settings\n")
 FileUtils.mkdir_p(File.join(main_store, 'dn1sup_save_settings'))
 File.write(File.join(main_store, 'dn1sup_save_settings', 'main.rb'), '# code')
 res = Core.create_profile(id: 'clean', name: 'Чистый', source_id: 'main', mode: 'clean')
 cl_store = Core.profile_store_plugins('clean')
 assert 'clean: создан', res['ok'] == true, res.inspect
-assert 'clean: состав (только менеджер и Save Settings)',
-       dir_children(cl_store).all? { |n| n =~ /\Adn1sup_sketchup_profiles(\.rb)?\z|dn1sup_save_settings/ },
+assert 'clean: состав (только менеджер)',
+       dir_children(cl_store).sort == ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb'],
        dir_children(cl_store).inspect
-assert 'clean: Save Settings на месте (rb + папка)',
-       File.file?(File.join(cl_store, 'dn1sup_save_settings.rb')) &&
-       File.file?(File.join(cl_store, 'dn1sup_save_settings', 'main.rb'))
+assert 'clean: Save Settings из источника не копируется',
+       !File.exist?(File.join(cl_store, 'dn1sup_save_settings.rb')) &&
+       !File.exist?(File.join(cl_store, 'dn1sup_save_settings'))
 # Примечание: в песочнице fake-junction папки менеджера — пустой маркер, поэтому
 # self_inject оставляет папку менеджера пустой (в живом SketchUp через junction
 # копируются реальные файлы; rb-регистратор гарантируется self_inject всегда).
@@ -588,14 +589,14 @@ assert 'clean: Prefs не наследуются',
        !File.directory?(Core.profile_store_prefs('clean'))
 assert 'clean: счётчик профиля', Core.state_payload['profiles'].find { |p| p['id'] == 'clean' }['extensions_count'] == dir_children(cl_store).size
 
-# --- пустой профиль: только менеджер, Prefs наследуются ---
+# --- legacy-алиас empty: работает как clean (только менеджер, Prefs с нуля) ---
 res = Core.create_profile(id: 'empt', name: 'Пустой', source_id: 'main', mode: 'empty')
 em_store = Core.profile_store_plugins('empt')
-assert 'empty: только менеджер',
+assert 'empty-алиас: только менеджер',
        res['ok'] == true && dir_children(em_store) == ['dn1sup_sketchup_profiles', 'dn1sup_sketchup_profiles.rb'],
        dir_children(em_store).inspect
-assert 'empty: Prefs наследуются как раньше',
-       File.file?(File.join(Core.profile_store_prefs('empt'), 'SharedPreferences.json'))
+assert 'empty-алиас: Prefs не наследуются',
+       !File.directory?(Core.profile_store_prefs('empt'))
 
 # откат при сбое и для clean-профиля
 saved_robocopy = Core::Win.method(:robocopy)
@@ -609,7 +610,7 @@ rescue RuntimeError
          Core.find_profile('rollback_clean').nil?
 end
 Core::Win.define_singleton_method(:robocopy, saved_robocopy)
-assert 'delete: чистый и пустой профили удаляются',
+assert 'delete: чистый и legacy-empty профили удаляются',
        Core.delete_profile('clean')['ok'] == true && Core.delete_profile('empt')['ok'] == true &&
        !File.directory?(Core.profile_store_root('clean')) && !File.directory?(Core.profile_store_root('empt'))
 begin
@@ -854,8 +855,8 @@ assert 'dispatch begin_migration (инициализировано) → ok:false
 
 dlg.scripts.clear
 Main.dispatch(dlg, 'create_profile', JSON.generate('id' => 'via_ui', 'name' => 'Через UI',
-                                                   'description' => '', 'source' => 'main', 'mode' => 'empty'))
-assert 'dispatch create_profile (mode empty) → ok',
+                                                   'description' => '', 'source' => 'main', 'mode' => 'clean'))
+assert 'dispatch create_profile (mode clean) → ok',
        dlg.scripts.grep(/"action_result"/).any? { |s| s.include?('"ok":true') } &&
        !Core.find_profile('via_ui').nil?
 Core.delete_profile('via_ui')
