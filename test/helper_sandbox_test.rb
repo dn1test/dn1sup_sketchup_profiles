@@ -161,6 +161,15 @@ begin
   FileUtils.remove_entry(gone_dir)
   raise 'висячий junction не создан' unless junction_in_dir?(dang) && !File.exist?(dang)
 
+  # «обновление мимо менеджера»: Store-апдейтер заменил junction реальной
+  # папкой с новым кодом — свитч обязан вернуть её содержимое в хранилище
+  # уходящего main, иначе возврат в main загрузит старую копию из хранилища
+  upd_dir = File.join(RealPlugins, 'dn1sup_ext_manager')
+  raise 'ожидался junction' unless junction_in_dir?(upd_dir)
+  system("cmd.exe /c rmdir \"#{upd_dir.tr('/', '\\')}\"") or raise 'rmdir junction не сработал'
+  FileUtils.mkdir_p(upd_dir)
+  File.write(File.join(upd_dir, 'main.rb'), "# UPDATED CODE 9.9.9\n")
+
   job_switch = job.merge(
     'kind' => 'switch', 'from_profile' => 'main', 'target_profile' => 'dev',
     'store_from_plugins' => main_store,
@@ -182,6 +191,10 @@ begin
          !File.exist?(File.join(RealPlugins, 'solo.rb'))
   assert 'новый .rb сохранён в уходящий профиль main',
          File.file?(File.join(main_store, 'zz_live_script.rb'))
+  assert 'обновление мимо менеджера: новый код возвращён в хранилище main',
+         File.read(File.join(main_store, 'dn1sup_ext_manager', 'main.rb')).include?('UPDATED CODE 9.9.9')
+  assert 'после свитча папка снова junction (на dev)',
+         junction_in_dir?(File.join(RealPlugins, 'dn1sup_ext_manager'))
   assert 'изменённые настройки сохранены в Prefs main',
          File.read(File.join(job['store_main_prefs'], 'PrivatePreferences.json')).include?('CHANGED')
   assert 'настройки целевого профиля применены (layout-main)',

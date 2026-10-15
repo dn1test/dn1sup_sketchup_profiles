@@ -273,6 +273,17 @@ try {
         Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $fromStore $f.Name) -Force
       }
       Write-Log ("switch: сохранено .rb уходящего профиля: {0}" -f $rbFiles.Count)
+      # Возврат в хранилище содержимого РЕАЛЬНЫХ (не-junction) папок: обновления,
+      # поставленные мимо менеджера профилей (Store-апдейтер, Warehouse, вручную),
+      # живут только в реальном Plugins. Без этого шага очистка (п.4) их сотрёт,
+      # а возврат в профиль загрузит старую копию из хранилища.
+      $savedBack = @()
+      foreach ($d in @(Get-ChildItem -LiteralPath $realPlugins -Force -Directory | Where-Object { -not $_.Name.StartsWith('.') })) {
+        if (Test-Reparse $d.FullName) { continue }  # junction: содержимое уже в хранилище
+        Copy-Tree $d.FullName (Join-Path $fromStore $d.Name) @()
+        $savedBack += $d.Name
+      }
+      if ($savedBack.Count -gt 0) { Write-Log ("switch: возвращены в хранилище папки: {0}" -f ($savedBack -join ', ')) }
     }
     if ($job.store_from_prefs) {
       $fromPrefs = [string]$job.store_from_prefs
