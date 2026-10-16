@@ -85,6 +85,17 @@ if version.nil?
 end
 raise 'Не удалось определить версию расширения' unless version
 
+# --- profile_core VERSION обязан совпадать с версией регистратора --------------
+# Иначе список расширений показывает одно (ext.version), а открытый диалог —
+# другое (state_payload отдаёт VERSION из profile_core).
+core_path = File.join(root, 'dn1sup_sketchup_profiles', 'profile_core.rb')
+if File.file?(core_path)
+  core_src = File.read(core_path)
+  if (m = core_src.match(/^\s*VERSION\s*=\s*['"]([^'"]+)['"]/))
+    raise "Версия profile_core (#{m[1]}) расходится с версией регистратора (#{version})" if m[1].to_s != version.to_s
+  end
+end
+
 # --- registry.json: выравнивание версии по коду ----------------------------------
 require 'json'
 registry_path = File.join(root, 'registry.json')

@@ -790,6 +790,16 @@ Main = Dn1sup::SketchupProfiles
 assert 'main: тулбар зарегистрирован', $ui_log.any? { |e| e[0] == :toolbar_item }
 assert 'main: VERSION совпадает', Main::VERSION == Core::VERSION
 
+loader_src = File.read(File.join(REPO, 'dn1sup_sketchup_profiles.rb'))
+loader_ver = loader_src[/(?:extension|ext)\.version\s*=\s*['"]([^'"]+)['"]/i, 1].to_s
+registry_ver = begin
+  JSON.parse(File.read(File.join(REPO, 'registry.json'))).find { |e| e.is_a?(Hash) && e['id'].to_s == Core::ID }&.fetch('version', '').to_s
+rescue StandardError
+  ''
+end
+assert 'версия: profile_core == регистратору', Core::VERSION == loader_ver, "core=#{Core::VERSION} loader=#{loader_ver}"
+assert 'версия: profile_core == registry.json', Core::VERSION == registry_ver, "core=#{Core::VERSION} registry=#{registry_ver}"
+
 class FakeStoreDialog
   attr_reader :scripts
 
