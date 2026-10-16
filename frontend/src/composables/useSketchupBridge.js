@@ -321,7 +321,7 @@ export function syncSelf() {
   callRuby('sync_self')
 }
 
-// Проверка обновления: сначала локальная папка разработки, потом GitHub.
+// Проверка обновления только на GitHub.
 // Ruby выполняет сеть в фоне (async), поэтому UI сразу показывает спиннер
 // на кнопке и тост, а флаг снимается по таймауту (как в save settings).
 let checkUpdateTimer = null
@@ -334,7 +334,7 @@ export function checkUpdate() {
     checkUpdateTimer = setTimeout(() => { state.checkingUpdate = false }, 1500)
     return
   }
-  toast('info', 'Проверка обновлений: сначала локальная папка, затем GitHub…')
+  toast('info', 'Проверка обновлений на GitHub…')
   // Сеть: open_timeout 4с + read_timeout 6с на запрос, запросов два
   // (releases + registry) — 15с покрывает типичный случай.
   checkUpdateTimer = setTimeout(() => { state.checkingUpdate = false }, 15000)

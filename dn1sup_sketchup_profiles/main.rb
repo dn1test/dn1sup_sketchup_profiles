@@ -25,8 +25,8 @@ module Dn1sup
     # Константы ID / VERSION / PLUGIN_DIR — в profile_core.rb.
     REPO        = 'dn1test/dn1sup_sketchup_profiles'
     ASSET       = "#{ID}.rbz"
-    # Папка разработки задана в самом расширении (корень репозитория):
-    # проверка обновления сначала смотрит её, потом GitHub.
+    # Папка разработки задана в самом расширении (корень репозитория).
+    # Проверка обновлений идёт только с GitHub (dev_dir в MANIFEST — для совместимости).
     DEV_DIR     = File.expand_path('..', PLUGIN_DIR).freeze
     MANIFEST    = { id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR }.freeze
     HTML_PATH   = File.join(PLUGIN_DIR, 'html', 'index.html').freeze
@@ -274,7 +274,10 @@ module Dn1sup
         msg = "Переключиться на профиль «#{p['name']}»?\n\n" \
               "SketchUp закроется и перезапустится уже с этим профилем " \
               '(его расширения и настройки интерфейса). ' \
-              "Несохранённые модели SketchUp предложит сохранить.\n\nПродолжить?"
+              "Несохранённые модели SketchUp предложит сохранить.\n\n" \
+              "Важно: если вы изменили интерфейс SketchUp (панели, тулбары) и хотите его сохранить, " \
+              "нужно хотя бы один раз перезапустить SketchUp штатно до переключения — " \
+              "иначе переключитесь со старым интерфейсом.\n\nПродолжить?"
         if UI.messagebox(msg, MB_YESNO) == IDYES
           res = begin
             Core.switch_profile(id)
@@ -366,8 +369,7 @@ module Dn1sup
       when 'sync_self'
         run_async(dlg, 'sync_self') { Core.sync_self_all }
       when 'check_update'
-        # Кнопка-облако в шапке: сначала локальная папка
-        # (DEV_DIR из MANIFEST), потом GitHub — ставится свежайшее.
+        # Кнопка-облако в шапке: проверка только на GitHub.
         if Dn1sup::Updater.dev_source?
           # Рабочая копия обновляется из папки репозитория, а не из релизов:
           # апдейтер в этом случае молча отказывается — отвечаем в диалог
@@ -376,7 +378,7 @@ module Dn1sup
                         { 'ok' => true,
                           'message' => 'Проверка отключена: запущена рабочая копия — обновления приходят из папки репозитория.' })
         else
-          Dn1sup::Updater.check_local_first!(MANIFEST.merge(force: true, async: true))
+          Dn1sup::Updater.check!(MANIFEST.merge(force: true, async: true))
         end
       when 'log_js_error'
         log_js_error(param)
@@ -486,7 +488,7 @@ module Dn1sup
       menu.add_item(profiles_command)
       menu.add_item('Справка') { open_dialog(true) }
       menu.add_item('Проверить обновления') do
-        Dn1sup::Updater.check_local_first!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, force: true, async: true })
+        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, force: true, async: true })
       end
 
       setup_toolbar
@@ -494,7 +496,7 @@ module Dn1sup
       timer_id = nil
       timer_id = UI.start_timer(25, false) do
         UI.stop_timer(timer_id) if timer_id
-        Dn1sup::Updater.check_local_first!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, async: true })
+        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, async: true })
       end
 
       file_loaded(__FILE__)

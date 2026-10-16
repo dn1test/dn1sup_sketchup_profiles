@@ -171,7 +171,7 @@ function backToProfiles() {
       <div class="ml-auto flex items-center gap-1">
         <button
           class="p-1.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-wait"
-          :title="state.checkingUpdate ? 'Проверка обновлений…' : 'Проверить обновление: сначала локальная папка разработки, потом GitHub'"
+          :title="state.checkingUpdate ? 'Проверка обновлений…' : 'Проверить обновление на GitHub'"
           :disabled="state.checkingUpdate"
           @click="checkUpdate"
         >
