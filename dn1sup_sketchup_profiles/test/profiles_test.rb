@@ -14,6 +14,15 @@ require_relative 'test_helper'
 module Dn1sup::SketchupProfiles::Test
   Core = Dn1sup::SketchupProfiles unless defined?(Core)
 
+  # Вне живого SketchUp (plain `ruby test/profiles_test.rb` с заглушками
+  # test_helper.rb) тесты, требующие рантайма SketchUp, уходят в skip.
+  # У настоящего API метода stubbed? нет — внутри SketchUp всё работает
+  # как раньше.
+  def self.outside_sketchup?
+    !defined?(Sketchup) ||
+      (Sketchup.respond_to?(:stubbed?) && Sketchup.stubbed?)
+  end
+
   def self.with_sandbox!
     skip('только Windows') unless Core::Win.windows?
 
@@ -94,7 +103,8 @@ module Dn1sup::SketchupProfiles::Test
   end
 
   test 'живое окружение определяется (read-only)' do
-    skip('вне SketchUp') unless defined?(Sketchup) && Sketchup.respond_to?(:version)
+    skip('вне SketchUp: нет активной модели') if outside_sketchup?
+    skip('вне SketchUp: нет активной модели') unless defined?(Sketchup) && Sketchup.respond_to?(:version)
 
     year = (2000 + Sketchup.version.to_i).to_s
     assert_equal(year, Core.su_year, "su_year=#{Core.su_year}")
@@ -103,6 +113,7 @@ module Dn1sup::SketchupProfiles::Test
   end
 
   test 'хелпер v2: живая миграция и переключение в песочнице' do
+    skip('вне SketchUp: нет активной модели') if outside_sketchup?
     with_sandbox! do |_sandbox|
       orig_launch = Core.method(:launch_helper_process)
       orig_pid = Core.method(:current_pid)
@@ -147,6 +158,7 @@ module Dn1sup::SketchupProfiles::Test
   end
 
   test 'ядро v2: установка .rbz и снимок в песочнице' do
+    skip('вне SketchUp: нет активной модели') if outside_sketchup?
     with_sandbox! do |_sandbox|
       orig_launch = Core.method(:launch_helper_process)
       orig_pid = Core.method(:current_pid)
@@ -207,4 +219,21 @@ module Dn1sup::SketchupProfiles::Test
       File.binwrite(path, body << central << eocd)
     end
   end
+end
+
+# Прямой запуск (ruby test/profiles_test.rb) печатает отчёт в stdout и
+# возвращает ненулевой код при провалах. Внутри SketchUp тесты запускает
+# сам ext_test через Test.run! — здесь молчим.
+if File.expand_path($PROGRAM_NAME) == File.expand_path(__FILE__)
+  report = Dn1sup::SketchupProfiles::Test.run!
+  puts '————————————————————————————————————'
+  puts "Тестов: #{report['total']}  Прошло: #{report['passed']}  " \
+       "Провалено: #{report['failures'].size}  Пропущено: #{report['skipped'].size}  " \
+       "за #{report['duration_ms']} мс"
+  report['failures'].each do |failure|
+    puts "\n✗ #{failure['name']}\n  #{failure['error']}"
+    Array(failure['backtrace']).each { |line| puts "    #{line}" }
+  end
+  report['skipped'].each { |s| puts "  ⊘ #{s['name']}: #{s['reason']}" }
+  exit(report['failures'].empty? ? 0 : 1)
 end
