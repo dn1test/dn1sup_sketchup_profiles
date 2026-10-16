@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import {
-  Layers, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
+  DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
   CheckCircle2, AlertTriangle, Info, HardDriveDownload, FolderOpen, Rocket, Loader2,
   CircleHelp, Moon, Sun, RotateCw
 } from 'lucide-vue-next'
@@ -153,9 +153,7 @@ function backToProfiles() {
   <div class="h-full flex flex-col">
     <!-- Шапка: только служебные иконки (как в save settings) -->
     <header class="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70">
-      <div class="w-8 h-8 rounded-lg bg-brand-500 text-white flex items-center justify-center shrink-0">
-        <Layers class="w-4 h-4" />
-      </div>
+      <img src="./assets/logo.svg" width="32" height="32" class="shrink-0" alt="DN1Sup SketchUp Profiles">
       <div class="min-w-0">
         <div class="flex items-center gap-2">
           <div class="text-sm font-semibold leading-tight">Профили SketchUp</div>

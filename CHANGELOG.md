@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.5] — 2026-10-16
+
+### DN1Sup SketchUp Profiles (v0.6.5)
+- **Фирменная плитка DN1Sup в шапке GUI** — та же плитка, что в каталоге
+  Extension Store (цветной квадрат, знак с «воздухом»); работает в светлой
+  и тёмной теме. Источник — `dn1sup_extensions` (`tools/make_icons.rb`).
 ## [0.6.4] — 2026-10-16
 
 ### DN1Sup SketchUp Profiles (v0.6.4)
