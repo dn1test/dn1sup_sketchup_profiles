@@ -278,10 +278,10 @@ function backToProfiles() {
               <div class="text-sm font-mono truncate">{{ b.file }}</div>
               <div class="text-[11px] text-slate-400">{{ fmtSize(b.size) }} · {{ fmtDate(b.mtime) }}</div>
             </div>
-            <button class="sp-btn-ghost !px-2" title="Восстановить профиль из снимка"
+            <button class="sp-btn-primary !px-3 !py-1.5 !text-[13px] whitespace-nowrap" title="Восстановить профиль из снимка"
                     :disabled="backupProfileOf(b)?.is_active"
                     @click="restoreBackup(b.profile, b.file)">
-              <FolderOpen class="w-4 h-4" />
+              <FolderOpen class="w-4 h-4" /> Восстановить
             </button>
             <button class="sp-btn-danger !px-2" title="Удалить снимок" @click="deleteBackup(b.file)">
               <X class="w-4 h-4" />
