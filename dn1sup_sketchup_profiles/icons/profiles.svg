@@ -1,15 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <defs>
-    <linearGradient id="profBlue" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#36abf7"/><stop offset="100%" stop-color="#0c8ee9"/></linearGradient>
-    <linearGradient id="profDark" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#006fb8"/><stop offset="100%" stop-color="#015995"/></linearGradient>
-    <linearGradient id="profBadge" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#22c55e"/><stop offset="100%" stop-color="#16a34a"/></linearGradient>
-  </defs>
-  <rect x="6" y="2.5" width="13" height="8" rx="2" fill="url(#profDark)"/>
-  <rect x="4.5" y="7" width="13" height="8" rx="2" fill="#0284C7"/>
-  <rect x="5" y="11.5" width="13" height="8.5" rx="2" fill="url(#profBlue)"/>
-  <line x1="7.5" y1="14.2" x2="14.5" y2="14.2" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round"/>
-  <line x1="7.5" y1="17" x2="12.5" y2="17" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity=".75"/>
-  <circle cx="17" cy="17" r="4.6" fill="url(#profBadge)"/>
-  <path d="M14.9 16h4.2M17.9 14.8l1.2 1.2-1.2 1.2" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M19.1 18.8h-4.2M16.1 17.6l-1.2 1.2 1.2 1.2" fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+<defs>
+<mask id="g" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+<rect width="24" height="24" fill="#000000"/>
+<circle cx="17.8" cy="7" r="3.4" fill="#ffffff" opacity="0.55"/><path d="M13.6 20.5L14 17.5L15.8 15.7L18.1 15.1L20.3 15.4L21.9 15.9L21.9 20.5Z" fill="#ffffff" opacity="0.55"/><circle cx="12" cy="8" r="3.7" fill="#ffffff"/><path d="M4.5 20.5L4.9 17.6L6.5 15.3L9.1 14.1L12 14.1L14.9 14.1L17.5 15.3L19.1 17.6L19.5 20.5Z" fill="#ffffff"/>
+</mask>
+</defs>
+<rect width="24" height="24" fill="#6366f1" mask="url(#g)"/>
 </svg>
