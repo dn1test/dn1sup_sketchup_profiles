@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.5.3'
+    VERSION       = '0.6.0'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
@@ -789,7 +789,7 @@ module Dn1sup
     end
 
     def delete_profile(id)
-      progress_start('delete_profile', id: id.to_s, phases: %w[delete meta])
+      progress_start('delete_profile', id: id.to_s, phases: %w[delete backups meta])
       begin
         progress_step('delete')
         validate_initialized!
@@ -798,11 +798,17 @@ module Dn1sup
         validate_not_active!(id)
 
         FileUtils.rm_rf(profile_store_root(id))
+        progress_step('backups')
+        removed_backups = delete_profile_backups(id)
         progress_step('meta')
         data = load_profiles
         data['profiles'].reject! { |p| p['id'].to_s == id.to_s }
         save_profiles(data)
-        { 'ok' => true, 'message' => "Профиль «#{id}» удалён." }
+        swept = cleanup_orphan_backups
+        message = "Профиль «#{id}» удалён."
+        message += " Удалено снимков профиля: #{removed_backups}." if removed_backups.positive?
+        message += " Удалено сиротских снимков: #{swept.size}." unless swept.empty?
+        { 'ok' => true, 'removed_backups' => removed_backups, 'removed_orphans' => swept, 'message' => message }
       ensure
         progress_finish
       end
@@ -858,6 +864,28 @@ module Dn1sup
     def cleanup_backups(profile_id)
       mine = list_backups.select { |b| b['profile'] == profile_id.to_s }
       mine.drop(BACKUPS_KEEP).each { |b| FileUtils.rm_f(File.join(backups_dir, b['file'])) }
+    end
+
+    # Снимки конкретного профиля (строгое равенство id — префиксы вроде
+    # «test» не задевают «test_extra»). Возвращает число удалённых файлов.
+    def delete_profile_backups(profile_id)
+      pid = profile_id.to_s
+      mine = list_backups.select { |b| b['profile'] == pid }
+      mine.each { |b| FileUtils.rm_f(File.join(backups_dir, b['file'])) }
+      mine.size
+    rescue StandardError
+      0
+    end
+
+    # Сиротские снимки — файлы, чей профиль уже отсутствует в profiles.json
+    # (удалён раньше без чистки, стёрт вручную). Возвращает список удалённых имён.
+    def cleanup_orphan_backups
+      known = profile_list.map { |p| p['id'].to_s }
+      orphans = list_backups.reject { |b| known.include?(b['profile']) }
+      orphans.each { |b| FileUtils.rm_f(File.join(backups_dir, b['file'])) }
+      orphans.map { |b| b['file'] }
+    rescue StandardError
+      []
     end
 
     def delete_backup(filename)

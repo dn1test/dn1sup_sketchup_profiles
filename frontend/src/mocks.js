@@ -109,8 +109,11 @@ export function applyMockAction(name, params = {}) {
   if (name === 'delete_profile') {
     delay(() => {
       mockProfiles = mockProfiles.filter(p => p.id !== id)
-      window.pushResult('action_result', { id, action: name, ok: true, message: `Профиль удалён (mock).` })
+      const known = new Set(mockProfiles.map(p => p.id))
+      mockBackups = mockBackups.filter(b => known.has(b.profile))
+      window.pushResult('action_result', { id, action: name, ok: true, message: `Профиль удалён вместе со снимками (mock).` })
       window.pushState(mockPayload())
+      window.pushResult('backups', { items: mockBackups })
     }, 600)
     return
   }

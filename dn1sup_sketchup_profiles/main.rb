@@ -175,6 +175,9 @@ module Dn1sup
         @current_task = nil
         notify_result(dlg, action, res, id)
         push_state(dlg)
+        if %w[delete_profile backup_profile restore_backup].include?(action.to_s)
+          push_result(dlg, 'backups', 'items' => Core.list_backups)
+        end
       end
       if defined?(UI) && UI.respond_to?(:start_timer)
         UI.start_timer(0.1, false) { perform.call }
@@ -242,6 +245,7 @@ module Dn1sup
         end
         push_result(dlg, 'extensions', 'profile' => id, 'items' => items)
       when 'get_backups'
+        Core.cleanup_orphan_backups
         push_result(dlg, 'backups', 'items' => Core.list_backups)
       when 'begin_migration'
         msg = "Инициализация профилей SketchUp.\n\n" \
@@ -310,8 +314,13 @@ module Dn1sup
         id = data['id'].to_s
         p = Core.find_profile(id)
         if p
-          request_confirm(dlg, 'delete_profile', data,
-                          "Удалить профиль «#{p['name']}» вместе со всеми его расширениями и настройками?")
+          n = Core.list_backups.count { |b| b['profile'] == id }
+          text = "Удалить профиль «#{p['name']}» вместе со всеми его расширениями и настройками?"
+          unless n.zero?
+            word = n == 1 ? 'снимок' : (n >= 2 && n <= 4 ? 'снимка' : 'снимков')
+            text = "Удалить профиль «#{p['name']}» вместе со всеми его расширениями, настройками и #{n} #{word} этого профиля?"
+          end
+          request_confirm(dlg, 'delete_profile', data, text)
         else
           notify_result(dlg, 'delete_profile', { 'ok' => false, 'error' => "Профиль «#{id}» не найден" }, id)
         end
@@ -365,6 +374,7 @@ module Dn1sup
           { 'ok' => false, 'error' => e.message }
         end
         notify_result(dlg, 'delete_backup', res)
+        Core.cleanup_orphan_backups
         push_result(dlg, 'backups', 'items' => Core.list_backups)
       when 'sync_self'
         run_async(dlg, 'sync_self') { Core.sync_self_all }
