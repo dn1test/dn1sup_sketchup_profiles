@@ -1,17 +1,34 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
-  Layers, CloudDownload, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
-  CheckCircle2, AlertTriangle, Info, HardDriveDownload, FolderOpen, Rocket, Loader2
+  Layers, DatabaseBackup, UserPlus, Share2, ArrowLeft, X,
+  CheckCircle2, AlertTriangle, Info, HardDriveDownload, FolderOpen, Rocket, Loader2,
+  CircleHelp, Moon, Sun, RotateCw
 } from 'lucide-vue-next'
 import {
   state, loadState, beginMigration, getBackups, restoreBackup, deleteBackup,
   syncSelf, checkUpdate, createProfile, renameProfile, isMock, toast, answerConfirm
 } from './composables/useSketchupBridge'
+import { useTheme } from './composables/useTheme'
 import { isValidId, slugify, uniqueId } from './id_slug'
 import ProfileCard from './components/ProfileCard.vue'
 import ExtensionsPanel from './components/ExtensionsPanel.vue'
 import TaskOverlay from './components/TaskOverlay.vue'
+import HelpModal from './components/HelpModal.vue'
+
+const { isDark, toggleTheme } = useTheme()
+
+// -- справка ----------------------------------------------------------------
+// Открывается кнопкой «?» в шапке; автопоказ — по одноразовому флагу
+// state.showHelp (пункт меню «Справка» в Ruby передаёт его в push_state).
+
+const helpOpen = ref(false)
+watch(() => state.showHelp, (v) => {
+  if (v) {
+    helpOpen.value = true
+    state.showHelp = false
+  }
+})
 
 onMounted(loadState)
 
@@ -134,39 +151,40 @@ function backToProfiles() {
 
 <template>
   <div class="h-full flex flex-col">
-    <!-- Шапка -->
-    <header class="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80">
-      <div class="w-9 h-9 rounded-xl bg-brand-500 text-white flex items-center justify-center shrink-0">
-        <Layers class="w-5 h-5" />
+    <!-- Шапка: только служебные иконки (как в save settings) -->
+    <header class="flex items-center gap-3 px-4 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70">
+      <div class="w-8 h-8 rounded-lg bg-brand-500 text-white flex items-center justify-center shrink-0">
+        <Layers class="w-4 h-4" />
       </div>
       <div class="min-w-0">
-        <div class="font-semibold leading-tight">Профили SketchUp</div>
-        <div class="text-[11px] text-slate-400 leading-tight flex items-center gap-1.5">
-          <span>DN1Sup · v{{ data?.version || '…' }}{{ isMock ? ' · mock' : '' }}</span>
+        <div class="flex items-center gap-2">
+          <div class="text-sm font-semibold leading-tight">Профили SketchUp</div>
+          <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">v{{ data?.version || '…' }}{{ isMock ? ' · mock' : '' }}</span>
+        </div>
+        <div class="text-[11px] text-slate-400 leading-tight truncate">
           <template v-if="data?.initialized">
-            · SketchUp {{ data.year }} · активен: {{ activeProfile?.name || '—' }}
+            SketchUp {{ data.year }} · активен: {{ activeProfile?.name || '—' }}
           </template>
+          <template v-else>DN1Sup</template>
         </div>
       </div>
-      <div class="flex-1"></div>
-      <button v-if="state.view !== 'profiles'" class="sp-btn-ghost" @click="backToProfiles">
-        <ArrowLeft class="w-4 h-4" /> Профили
-      </button>
-      <template v-else-if="data?.initialized">
-        <button class="sp-btn-ghost" title="Снимки-резервные копии профилей" @click="openBackups">
-          <DatabaseBackup class="w-4 h-4" /> Снимки
+      <div class="ml-auto flex items-center gap-1">
+        <button
+          class="p-1.5 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-wait"
+          :title="state.checkingUpdate ? 'Проверка обновлений…' : 'Проверить обновление: сначала локальная папка разработки, потом GitHub'"
+          :disabled="state.checkingUpdate"
+          @click="checkUpdate"
+        >
+          <RotateCw class="w-4 h-4" :class="{ 'animate-spin': state.checkingUpdate }" />
         </button>
-        <button class="sp-btn-ghost" title="Скопировать менеджер профилей во все профили"
-                :disabled="state.busy?.action === 'sync'" @click="syncSelf">
-          <Share2 class="w-4 h-4" /> Синхр. менеджера
+        <button class="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" title="Справка: как пользоваться" @click="helpOpen = true">
+          <CircleHelp class="w-4 h-4" />
         </button>
-        <button class="sp-btn-primary" @click="openCreateForm()">
-          <UserPlus class="w-4 h-4" /> Новый профиль
+        <button class="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800" :title="isDark ? 'Светлая тема' : 'Тёмная тема'" @click="toggleTheme">
+          <Sun v-if="isDark" class="w-4 h-4" />
+          <Moon v-else class="w-4 h-4" />
         </button>
-      </template>
-      <button class="sp-btn-ghost !rounded-full" title="Проверить обновление расширения: сначала локальная папка разработки, потом GitHub" @click="checkUpdate">
-        <CloudDownload class="w-4 h-4" />
-      </button>
+      </div>
     </header>
 
     <!-- Контент -->
@@ -276,12 +294,32 @@ function backToProfiles() {
       </div>
     </main>
 
-    <!-- Статус-бар -->
-    <footer v-if="data?.initialized" class="px-4 py-1.5 border-t border-slate-200 dark:border-slate-800
-                 bg-white dark:bg-slate-900/80 text-[11px] text-slate-400 flex items-center gap-3">
-      <span class="font-mono truncate" :title="data.store_root">{{ data.store_root }}</span>
-      <span v-if="!data.su_exe_found" class="text-amber-500">SketchUp.exe не найден — автоперезапуск невозможен</span>
+    <!-- Подвал: слева действия, справа хранилище (как в save settings) -->
+    <footer v-if="data?.initialized" class="flex items-center gap-1.5 px-4 py-1.5 border-t border-slate-200 dark:border-slate-800
+                 bg-white dark:bg-slate-900/80 text-[11px] text-slate-400">
+      <button v-if="state.view !== 'profiles'" class="sp-btn-ghost !px-2.5 !py-1 !text-[11px] whitespace-nowrap" @click="backToProfiles">
+        <ArrowLeft class="w-4 h-4" /> Профили
+      </button>
+      <template v-else>
+        <button class="sp-btn-ghost !px-2.5 !py-1 !text-[11px] whitespace-nowrap" title="Снимки-резервные копии профилей" @click="openBackups">
+          <DatabaseBackup class="w-4 h-4" /> Снимки
+        </button>
+        <button class="sp-btn-ghost !px-2.5 !py-1 !text-[11px] whitespace-nowrap" title="Скопировать менеджер профилей во все профили"
+                :disabled="state.busy?.action === 'sync'" @click="syncSelf">
+          <Share2 class="w-4 h-4" /> Синхр. менеджера
+        </button>
+        <button class="sp-btn-primary !px-2.5 !py-1 !text-[11px] whitespace-nowrap" @click="openCreateForm()">
+          <UserPlus class="w-4 h-4" /> Новый профиль
+        </button>
+      </template>
+      <div class="ml-auto flex items-center gap-3 min-w-0">
+        <span class="font-mono truncate" :title="data.store_root">{{ data.store_root }}</span>
+        <span v-if="!data.su_exe_found" class="text-amber-500 whitespace-nowrap">SketchUp.exe не найден — автоперезапуск невозможен</span>
+      </div>
     </footer>
+
+    <!-- Модал справки -->
+    <HelpModal :open="helpOpen" @close="helpOpen = false" />
 
     <!-- Модальная форма профиля -->
     <div v-if="showForm" class="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex items-center justify-center p-6 z-50" @click.self="showForm = false">      <div class="sp-card w-full max-w-md p-5 flex flex-col gap-3 !bg-white dark:!bg-slate-900 shadow-2xl">

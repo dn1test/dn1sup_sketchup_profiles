@@ -76,10 +76,14 @@ module Dn1sup
 
     # ---- HtmlDialog --------------------------------------------------------------
 
-    def open_dialog
+    # help: true — окно откроется с показанной справкой (пункт меню «Справка»);
+    # флаг одноразовый, передаётся в UI с первым push_state (как в save settings).
+    def open_dialog(help = false)
+      @pending_help = true if help
       capture_session_paths!
       if @dialog && @dialog.visible?
         @dialog.bring_to_front
+        push_state(@dialog)
         return
       end
 
@@ -119,6 +123,12 @@ module Dn1sup
 
       payload = Core.state_payload
       payload['busy_task'] = @current_task
+      # Одноразовый флаг справки (пункт меню «Справка»): UI откроет окно
+      # справки и сбросит флаг сам.
+      if @pending_help
+        payload['show_help'] = true
+        @pending_help = false
+      end
       dlg.execute_script("window.pushState(#{JSON.generate(payload)});")
     rescue StandardError => e
       Dn1sup::Updater.log_error(e)
@@ -474,6 +484,7 @@ module Dn1sup
       common = Dn1sup.common_menu
       menu = common.add_submenu('Профили SketchUp')
       menu.add_item(profiles_command)
+      menu.add_item('Справка') { open_dialog(true) }
       menu.add_item('Проверить обновления') do
         Dn1sup::Updater.check_local_first!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, force: true, async: true })
       end

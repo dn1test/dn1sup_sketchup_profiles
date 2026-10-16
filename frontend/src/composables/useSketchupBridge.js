@@ -35,7 +35,9 @@ const state = reactive({
   task: null,                  // { action, id, text, phase, phases } — блокирующий оверлей
   confirm: null,               // { token, action, text } — подтверждение в окне
   toast: null,                 // { kind: 'ok'|'err'|'info', text }
-  quitting: false
+  quitting: false,
+  showHelp: false,             // одноразовый флаг Ruby: открыть справку (пункт меню «Справка»)
+  checkingUpdate: false        // индикатор кнопки проверки обновлений в шапке
 })
 
 let toastTimer = null
@@ -101,6 +103,7 @@ if (typeof window !== 'undefined') {
     if (!payload) return
     state.ready = true
     state.data = payload
+    state.showHelp = !!payload.show_help
     if (payload.job_result) {
       const jr = payload.job_result
       if (jr.ok) toast('ok', `Хелпер завершил: ${(jr.phases || []).join(' → ') || 'готово'}`)
@@ -319,13 +322,22 @@ export function syncSelf() {
 }
 
 // Проверка обновления: сначала локальная папка разработки, потом GitHub.
-// Мгновенный тост — сеть проверяется асинхронно, иначе кнопка выглядит мёртвой.
+// Ruby выполняет сеть в фоне (async), поэтому UI сразу показывает спиннер
+// на кнопке и тост, а флаг снимается по таймауту (как в save settings).
+let checkUpdateTimer = null
 export function checkUpdate() {
+  if (state.checkingUpdate) return
+  state.checkingUpdate = true
+  if (checkUpdateTimer) clearTimeout(checkUpdateTimer)
   if (isMock) {
     toast('ok', 'Проверка обновлений (mock): актуальная версия')
+    checkUpdateTimer = setTimeout(() => { state.checkingUpdate = false }, 1500)
     return
   }
   toast('info', 'Проверка обновлений: сначала локальная папка, затем GitHub…')
+  // Сеть: open_timeout 4с + read_timeout 6с на запрос, запросов два
+  // (releases + registry) — 15с покрывает типичный случай.
+  checkUpdateTimer = setTimeout(() => { state.checkingUpdate = false }, 15000)
   callRuby('check_update')
 }
 
