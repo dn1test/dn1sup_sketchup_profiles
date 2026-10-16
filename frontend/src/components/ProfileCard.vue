@@ -77,7 +77,7 @@ function fmtDate(ts) {
       <button class="sp-btn-ghost !px-2.5" title="Переименовать / описание" @click="$emit('edit', profile)">
         <Pencil class="w-4 h-4" />
       </button>
-      <button v-if="!profile.protected" class="sp-btn-danger !px-2.5" title="Удалить профиль"
+      <button v-if="!profile.protected && !profile.is_active" class="sp-btn-danger !px-2.5" title="Удалить профиль"
               @click="deleteProfile(profile.id, profile.name)">
         <Trash2 class="w-4 h-4" />
       </button>
