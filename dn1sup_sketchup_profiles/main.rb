@@ -25,10 +25,7 @@ module Dn1sup
     # Константы ID / VERSION / PLUGIN_DIR — в profile_core.rb.
     REPO        = 'dn1test/dn1sup_sketchup_profiles'
     ASSET       = "#{ID}.rbz"
-    # Папка разработки задана в самом расширении (корень репозитория).
-    # Проверка обновлений идёт только с GitHub (dev_dir в MANIFEST — для совместимости).
-    DEV_DIR     = File.expand_path('..', PLUGIN_DIR).freeze
-    MANIFEST    = { id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR }.freeze
+    MANIFEST    = { id: ID, repo: REPO, version: VERSION, asset: ASSET }.freeze
     HTML_PATH   = File.join(PLUGIN_DIR, 'html', 'index.html').freeze
     ICON_DIR    = File.join(PLUGIN_DIR, 'icons').freeze
     TOOLBAR_NAME = 'DN1Sup SketchUp Profiles'
@@ -498,7 +495,7 @@ module Dn1sup
       menu.add_item(profiles_command)
       menu.add_item('Справка') { open_dialog(true) }
       menu.add_item('Проверить обновления') do
-        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, force: true, async: true })
+        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, force: true, async: true })
       end
 
       setup_toolbar
@@ -506,7 +503,7 @@ module Dn1sup
       timer_id = nil
       timer_id = UI.start_timer(25, false) do
         UI.stop_timer(timer_id) if timer_id
-        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, dev_dir: DEV_DIR, async: true })
+        Dn1sup::Updater.check!({ id: ID, repo: REPO, version: VERSION, asset: ASSET, async: true })
       end
 
       file_loaded(__FILE__)
