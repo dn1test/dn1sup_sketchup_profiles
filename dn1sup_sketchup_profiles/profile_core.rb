@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.6.5'
+    VERSION       = '0.6.7'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
