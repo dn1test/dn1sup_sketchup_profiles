@@ -475,7 +475,6 @@ module Dn1sup
     end
 
     def setup_toolbar
-      # Тулбар всегда отдельный: общая панель DN1Sup больше не используется.
       toolbar = UI::Toolbar.new(TOOLBAR_NAME)
       return if toolbar.any? { |c| c.respond_to?(:tooltip) && c.tooltip == CMD_TOOLTIP }
 
