@@ -475,14 +475,7 @@ module Dn1sup
     end
 
     def setup_toolbar
-      # Общая панель DN1Sup дублирует эту кнопку: пока не включён параметр
-      # «Показывать отдельные тулбары расширений», свой тулбар не создаём —
-      # тогда его нет и в списке панелей SketchUp.
-      if Sketchup.respond_to?(:read_default) &&
-         !Sketchup.read_default('DN1Sup ExtManager', 'shared_toolbar_show_individual')
-        return
-      end
-
+      # Тулбар всегда отдельный: общая панель DN1Sup больше не используется.
       toolbar = UI::Toolbar.new(TOOLBAR_NAME)
       return if toolbar.any? { |c| c.respond_to?(:tooltip) && c.tooltip == CMD_TOOLTIP }
 
