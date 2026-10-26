@@ -32,7 +32,7 @@ require_relative 'win_helpers'
 module Dn1sup
   module SketchupProfiles
     ID            = 'dn1sup_sketchup_profiles'
-    VERSION       = '0.6.8'
+    VERSION       = '0.6.9'
     STORE_VERSION = 2
     MAIN_ID       = 'main'
     BACKUPS_KEEP  = 10
@@ -399,6 +399,20 @@ module Dn1sup
 
     def validate_not_active!(id)
       raise 'Профиль сейчас активен — операция недоступна' if detect_active_profile == id.to_s
+    end
+
+    # Предполётная проверка перед операциями с закрытием SketchUp
+    # (инициализация/переключение): хелпер после выхода требует strict_solo —
+    # чужой процесс SketchUp сорвёт операцию УЖЕ ПОСЛЕ закрытия текущего окна
+    # (пользователь видит «упал и не перезапустился»). Отказываем заранее,
+    # пока SketchUp жив и диалог может показать понятную ошибку.
+    def validate_solo_instance!(action)
+      others = Win.other_sketchup_pids(current_pid)
+      return true if others.empty?
+
+      raise "Обнаружен другой запущенный SketchUp (PID #{others.join(', ')}): " \
+            "«#{action}» безопасна только при одном экземпляре. " \
+            'Закройте все окна SketchUp (всех версий) и повторите.'
     end
 
     # Целостность клона хранилища после robocopy: все ожидаемые элементы
@@ -995,6 +1009,7 @@ module Dn1sup
       raise 'Профили уже инициализированы' if initialized?
 
       year = validate_su_year!
+      validate_solo_instance!('Инициализация профилей')
       raise "Каталог Plugins не найден: #{real_plugins_dir}" unless File.directory?(real_plugins_dir)
 
       meta = { 'store_version' => STORE_VERSION, 'profiles' => [main_meta] }
@@ -1022,6 +1037,7 @@ module Dn1sup
       raise "Профиль «#{id}» не найден" unless profile_exists?(id)
       active = detect_active_profile
       raise 'Этот профиль уже активен' if active == id.to_s
+      validate_solo_instance!('Переключение профиля')
 
       target_store = profile_store_plugins(id)
       raise "Хранилище профиля не найдено: #{target_store}" unless File.directory?(target_store)

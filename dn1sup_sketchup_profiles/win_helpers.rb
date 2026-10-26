@@ -241,6 +241,32 @@ module Dn1sup
       rescue StandardError
         false
       end
+
+      # Все PID процессов SketchUp.exe (tasklist, только Windows).
+      # Локаль-независимо: матчим строки вида "SketchUp.exe <pid> ...",
+      # заголовок tasklist локализован — по нему не матчим. При отсутствии
+      # процессов tasklist пишет INFO/ИНФОРМАЦИЯ — совпадений нет, итог [].
+      def sketchup_pids
+        return [] unless windows?
+
+        out, _code = hidden_capture_out('tasklist /FI "IMAGENAME eq SketchUp.exe"')
+        out.to_s.lines.filter_map do |line|
+          m = line.match(/\Asketchup\.exe\s+(\d+)\b/i)
+          m && m[1].to_i
+        end.uniq
+      rescue StandardError
+        []
+      end
+
+      # Чужие процессы SketchUp (исключая текущий): их наличие делает
+      # инициализацию/переключение небезопасной — хелпер после выхода
+      # требует strict_solo и без рестарта роняет операцию.
+      def other_sketchup_pids(current_pid = nil)
+        mine = current_pid.to_i
+        sketchup_pids.reject { |pid| pid == mine }
+      rescue StandardError
+        []
+      end
     end
   end
 end

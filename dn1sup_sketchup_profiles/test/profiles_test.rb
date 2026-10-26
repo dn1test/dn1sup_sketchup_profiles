@@ -48,12 +48,16 @@ module Dn1sup::SketchupProfiles::Test
     orig = {
       appdata: Core.method(:env_appdata), local: Core.method(:env_localappdata),
       session: Core.plugins_root_of_current_session,
-      solo: Core.method(:strict_solo_flag)
+      solo: Core.method(:strict_solo_flag),
+      pids: Core::Win.method(:sketchup_pids)
     }
     Core.define_singleton_method(:env_appdata) { roam }
     Core.define_singleton_method(:env_localappdata) { local }
     Core.plugins_root_of_current_session = plugins
     Core.define_singleton_method(:strict_solo_flag) { false }
+    # Предполётный strict_solo в песочнице: чужих SketchUp нет
+    # (иначе реальный tasklist живого процесса ронял бы миграции/свитчи).
+    Core::Win.define_singleton_method(:sketchup_pids) { [] }
 
     begin
       yield sandbox
@@ -62,6 +66,7 @@ module Dn1sup::SketchupProfiles::Test
       Core.define_singleton_method(:env_localappdata, orig[:local])
       Core.plugins_root_of_current_session = orig[:session]
       Core.define_singleton_method(:strict_solo_flag, orig[:solo])
+      Core::Win.define_singleton_method(:sketchup_pids, orig[:pids])
       ENV.delete('DN1SUP_PROFILES_YEAR')
       FileUtils.remove_entry(sandbox) if File.directory?(sandbox)
     end
@@ -154,6 +159,40 @@ module Dn1sup::SketchupProfiles::Test
 
       Core.define_singleton_method(:launch_helper_process, orig_launch)
       Core.define_singleton_method(:current_pid, orig_pid)
+    end
+  end
+
+  test 'предполётный strict_solo: отказ до закрытия при чужом SketchUp' do
+    skip('вне SketchUp: нет активной модели') if outside_sketchup?
+    with_sandbox! do |_sandbox|
+      orig_pids = Core::Win.method(:sketchup_pids)
+      orig_pid = Core.method(:current_pid)
+      orig_launch = Core.method(:launch_helper_process)
+      launched = []
+      Core.define_singleton_method(:launch_helper_process) { |c| launched << c; true }
+      Core.define_singleton_method(:current_pid) { 0 }
+      begin
+        Core::Win.define_singleton_method(:sketchup_pids) { [0, 777_001] }
+        err = nil
+        begin
+          Core.prepare_migration
+        rescue RuntimeError => e
+          err = e
+        end
+        assert(err && err.message.include?('777001'), "ожидали отказ с PID, получили #{err.inspect}")
+        assert(err.message.include?('одном экземпляре'), err.message)
+        assert(launched.empty?, 'хелпер не должен запускаться')
+        assert(!File.file?(Core.pending_job_path), 'pending_job не должен создаваться')
+
+        Core::Win.define_singleton_method(:sketchup_pids) { [0] }
+        res = Core.prepare_migration
+        assert_equal(true, res['ok'], res.inspect)
+        assert(!launched.empty?, 'без чужих процессов хелпер запускается')
+      ensure
+        Core::Win.define_singleton_method(:sketchup_pids, orig_pids)
+        Core.define_singleton_method(:current_pid, orig_pid)
+        Core.define_singleton_method(:launch_helper_process, orig_launch)
+      end
     end
   end
 

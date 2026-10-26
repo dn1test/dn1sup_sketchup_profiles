@@ -155,6 +155,9 @@ Win.define_singleton_method(:remove_junction) do |p|
   true
 end
 
+# Предполётный strict_solo: по умолчанию чужих SketchUp нет.
+Win.define_singleton_method(:sketchup_pids) { [] }
+
 Win.define_singleton_method(:robocopy) do |src, dst, exclude_names: []|
   next false unless File.directory?(src.to_s)
 
@@ -663,6 +666,23 @@ assert 'новый .rb из реального Plugins ушёл в хранил�
 assert 'после возврата активный — main, набор восстановлен',
        Core.detect_active_profile == 'main' &&
        dir_children(REAL_PLUGINS) == dir_children(main_store)
+
+# --- предполётный strict_solo: отказ ДО закрытия SketchUp ---
+saved_pids = Core::Win.method(:sketchup_pids)
+Core::Win.define_singleton_method(:sketchup_pids) { [4242, 9999] } # 4242 — свой (current_pid), 9999 — чужой
+$helper_cmdlines.clear
+begin
+  Core.switch_profile('training')
+  assert 'switch: чужой SketchUp отклонён до запуска хелпера', false
+rescue RuntimeError => e
+  assert 'switch: чужой SketchUp отклонён до запуска хелпера',
+         e.message.include?('9999') && e.message.include?('одном экземпляре'), e.message
+end
+assert 'switch: хелпер не запускался, pending_job не создан',
+       $helper_cmdlines.empty? && !File.file?(Core.pending_job_path)
+Core::Win.define_singleton_method(:sketchup_pids, saved_pids)
+assert 'solo-валидатор пропускает без чужих процессов',
+       Core.validate_solo_instance!('тест') == true
 
 # =============================================================================
 # 11. main.rb: диспетчер (фейки)
